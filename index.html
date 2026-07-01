@@ -1,0 +1,1775 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>默聲創意 · 季度獎金計算</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<script type="module">
+  import { initializeApp } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-app.js";
+  import { getFirestore, doc, getDoc, setDoc, onSnapshot, collection, getDocs }
+    from "https://www.gstatic.com/firebasejs/10.13.0/firebase-firestore.js";
+
+  // ⚠️ 請將下方換成你自己 Firebase 專案的設定值（Firebase Console → 專案設定 → 一般 → 您的應用程式）
+  const firebaseConfig = {
+    apiKey: "AIzaSyBJdC0u4t31-6bsLBNxwpUQZpeVq0Leou0",
+    authDomain: "morcept-bonus.firebaseapp.com",
+    projectId: "morcept-bonus",
+    storageBucket: "morcept-bonus.firebasestorage.app",
+    messagingSenderId: "143426898008",
+    appId: "1:143426898008:web:0b57b95917dbeccd01e22d"
+  };
+
+  const fbApp = initializeApp(firebaseConfig);
+  const fbDB = getFirestore(fbApp);
+
+  // 把 Firestore 方法掛到 window，讓主程式（非 module script）可以呼叫
+  window.__fb = { doc, getDoc, setDoc, onSnapshot, collection, getDocs, db: fbDB };
+  window.dispatchEvent(new Event('fb-ready'));
+</script>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --navy:#151C31;--gold:#F8CB2A;--bg:#f5f4f0;--surface:#fff;--border:#e5e3dc;
+  --t1:#1a1a18;--t2:#444;--t3:#888;
+  --green:#16a34a;--blue:#2563eb;--orange:#d97706;--red:#dc2626;--purple:#7c3aed;
+  --s2:#f7f6f2;--s3:#eeece6;
+}
+body{background:var(--bg);color:var(--t1);font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;min-height:100vh;font-size:15px}
+/* Login */
+.login-wrap{position:fixed;inset:0;background:var(--navy);display:flex;align-items:center;justify-content:center;z-index:999;overflow-y:auto}
+.login-box{background:#fff;border-radius:16px;padding:28px 24px;width:360px;margin:20px auto}
+.login-logo{font-size:20px;font-weight:800;color:var(--navy);margin-bottom:2px}
+.login-sub{font-size:12px;color:var(--t3);margin-bottom:16px}
+.login-group{margin-bottom:10px}
+.login-group-label{font-size:11px;color:var(--t3);margin-bottom:5px;font-weight:600}
+.login-btns{display:grid;grid-template-columns:1fr 1fr;gap:6px}
+.login-btns.col3{grid-template-columns:1fr 1fr 1fr}
+.member-btn{padding:8px 10px;border:1.5px solid var(--border);border-radius:8px;background:var(--s2);cursor:pointer;font-size:12px;font-weight:600;font-family:inherit;display:flex;align-items:center;gap:7px;transition:.15s;text-align:left}
+.member-btn:hover{border-color:var(--navy);background:var(--navy);color:#fff}
+.mb-av{width:24px;height:24px;border-radius:50%;background:var(--navy);color:#fff;font-size:11px;font-weight:700;display:flex;align-items:center;justify-content:center;flex-shrink:0}
+.member-btn:hover .mb-av{background:rgba(255,255,255,.2)}
+.login-pw-box{margin-top:10px}
+.login-pw-input{width:100%;padding:10px 12px;border:1.5px solid var(--border);border-radius:8px;font-size:14px;font-family:inherit;background:var(--s2);margin-bottom:8px}
+.login-pw-input:focus{outline:none;border-color:var(--blue);background:#fff}
+.login-pw-user{display:flex;align-items:center;gap:8px;background:var(--s2);border-radius:8px;padding:8px 10px;margin-bottom:10px}
+.login-pw-back{font-size:11px;color:var(--t3);cursor:pointer}
+.login-pw-back:hover{color:var(--navy)}
+.login-err{font-size:12px;color:var(--red);margin:-2px 0 8px;min-height:14px}
+.account-menu{position:relative;display:inline-block}
+.account-menu-dropdown{position:absolute;top:calc(100% + 6px);right:0;background:#fff;border:1px solid var(--border);border-radius:10px;box-shadow:0 8px 24px rgba(0,0,0,.15);min-width:170px;z-index:200;overflow:hidden}
+.account-menu-item{padding:10px 14px;font-size:12px;color:var(--t2);cursor:pointer;display:flex;align-items:center;gap:7px;white-space:nowrap}
+.account-menu-item:hover{background:var(--s2)}
+.account-menu-item.danger{color:var(--red)}
+.modal-mask{position:fixed;inset:0;background:rgba(0,0,0,.4);z-index:998;display:flex;align-items:center;justify-content:center}
+.modal-box{background:#fff;border-radius:14px;padding:22px 20px;width:320px}
+.modal-title{font-size:15px;font-weight:700;margin-bottom:14px}
+/* Header */
+.hdr{background:var(--navy);color:#fff;padding:0 20px;display:flex;align-items:center;justify-content:space-between;height:52px;position:sticky;top:0;z-index:100}
+.hdr-title{font-size:15px;font-weight:700}
+.hdr-right{display:flex;align-items:center;gap:10px}
+.season-sel{background:rgba(255,255,255,.12);border:1px solid rgba(255,255,255,.25);color:#fff;padding:4px 8px;border-radius:7px;font-size:12px;font-family:inherit;cursor:pointer}
+.who-badge{background:var(--gold);color:var(--navy);font-weight:700;padding:4px 12px;border-radius:20px;font-size:12px;cursor:pointer}
+/* Nav */
+.nav{background:#fff;border-bottom:1px solid var(--border);padding:0 16px;display:flex;gap:2px;overflow-x:auto}
+.nav-tab{padding:12px 14px;font-size:13px;font-weight:600;color:var(--t3);border:none;background:none;cursor:pointer;border-bottom:2px solid transparent;white-space:nowrap;font-family:inherit;transition:.15s}
+.nav-tab.on{color:var(--navy);border-bottom-color:var(--gold)}
+/* Main */
+.main{max-width:900px;margin:0 auto;padding:16px}
+/* Cards */
+.card{background:#fff;border:1px solid var(--border);border-radius:12px;margin-bottom:14px;overflow:hidden}
+.card-hdr{padding:13px 16px;display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid var(--border)}
+.card-title{font-size:14px;font-weight:700;display:flex;align-items:center;gap:7px}
+.card-body{padding:14px 16px}
+/* Form */
+.field-row{display:flex;align-items:center;gap:8px;margin-bottom:8px;flex-wrap:wrap}
+.field-label{font-size:12px;color:var(--t2);min-width:90px;flex-shrink:0}
+.fi{padding:7px 10px;border:1px solid var(--border);border-radius:8px;font-size:13px;font-family:inherit;background:var(--s2);transition:.15s}
+.fi:focus{outline:none;border-color:var(--blue);background:#fff}
+.fi:disabled{opacity:.6;cursor:not-allowed}
+.fi-sm{width:90px}.fi-md{width:130px}
+.unit{font-size:12px;color:var(--t3);flex-shrink:0}
+.add-btn{padding:6px 12px;background:var(--s2);border:1.5px dashed var(--border);border-radius:7px;font-size:12px;cursor:pointer;font-family:inherit;color:var(--t3);transition:.15s}
+.add-btn:hover{border-color:var(--blue);color:var(--blue)}
+.del-btn{width:22px;height:22px;border:none;background:none;cursor:pointer;color:var(--t3);font-size:16px;flex-shrink:0;border-radius:4px;display:flex;align-items:center;justify-content:center}
+.del-btn:hover{background:var(--s3);color:var(--red)}
+/* Result */
+.result-bar{background:linear-gradient(135deg,var(--navy),#2a3550);border-radius:10px;padding:16px 18px;color:#fff;display:flex;justify-content:space-between;align-items:center;margin-top:12px}
+.result-label{font-size:11px;opacity:.7;margin-bottom:3px}
+.result-amount{font-size:22px;font-weight:800}
+.result-detail{font-size:10px;opacity:.6;margin-top:2px}
+/* Score bars */
+.score-track{height:7px;background:var(--s3);border-radius:4px;overflow:hidden;margin-bottom:4px}
+.score-fill{height:100%;border-radius:4px;transition:width .4s}
+/* Table */
+.task-table{width:100%;border-collapse:collapse;font-size:12px}
+.task-table th{text-align:left;padding:7px 9px;color:var(--t3);font-weight:600;border-bottom:1px solid var(--border);white-space:nowrap}
+.task-table td{padding:7px 9px;border-bottom:1px solid var(--s3);vertical-align:middle}
+.task-table tr:last-child td{border-bottom:none}
+.task-table tr:hover td{background:var(--s2)}
+/* Pills */
+.pill{font-size:10px;font-weight:700;padding:2px 8px;border-radius:8px;white-space:nowrap}
+.pill-green{background:#dcfce7;color:#166534}
+.pill-orange{background:#fff7ed;color:#9a3412}
+.pill-blue{background:#eff6ff;color:#1d4ed8}
+.pill-gray{background:var(--s3);color:var(--t3)}
+.pill-purple{background:#f3e8ff;color:#6b21a8}
+.pill-yellow{background:#fefce8;color:#854d0e}
+/* Notice */
+.notice{background:#fefce8;border:1px solid #fde047;border-radius:8px;padding:9px 12px;font-size:12px;color:#78600a;margin-bottom:10px;line-height:1.6}
+/* Misc */
+.sec-label{font-size:11px;font-weight:700;color:var(--t3);text-transform:uppercase;letter-spacing:.06em;margin-bottom:7px;margin-top:14px}
+.sec-label:first-child{margin-top:0}
+.g2{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.g3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px}
+.g4{display:grid;grid-template-columns:repeat(4,1fr);gap:8px}
+@media(max-width:600px){.g2,.g3,.g4{grid-template-columns:1fr 1fr}}
+.mini-stat{background:var(--s2);border-radius:8px;padding:10px 12px;text-align:center}
+.mini-stat-val{font-size:18px;font-weight:800;margin-bottom:1px}
+.mini-stat-lbl{font-size:10px;color:var(--t3)}
+.divider{height:1px;background:var(--border);margin:12px 0}
+.team-chip{background:#f0fdf4;border:1px solid #bbf7d0;border-radius:10px;padding:12px 14px;margin-bottom:12px}
+.action-btn{padding:7px 16px;border:none;border-radius:8px;font-size:12px;font-weight:700;cursor:pointer;font-family:inherit;transition:.15s}
+.btn-primary{background:var(--navy);color:#fff}
+.btn-primary:hover{opacity:.85}
+.btn-green{background:#16a34a;color:#fff}
+.btn-green:hover{opacity:.85}
+.btn-blue{background:var(--blue);color:#fff}
+.btn-blue:hover{opacity:.85}
+.btn-orange{background:var(--orange);color:#fff}
+.btn-orange:hover{opacity:.85}
+select.fi{cursor:pointer}
+/* Sub tabs */
+.sub-nav{display:flex;gap:4px;border-bottom:1px solid var(--border);margin-bottom:14px}
+.sub-tab{padding:9px 14px;background:none;border:none;font-size:13px;font-weight:600;color:var(--t3);cursor:pointer;border-bottom:2px solid transparent;font-family:inherit;transition:.15s}
+.sub-tab.on{color:var(--navy);border-bottom-color:var(--gold)}
+/* Toast */
+#toast-wrap{position:fixed;bottom:20px;right:20px;z-index:9999;display:flex;flex-direction:column;gap:5px}
+.toast{padding:9px 14px;border-radius:9px;font-size:13px;font-weight:600;box-shadow:0 4px 12px rgba(0,0,0,.15);animation:slideIn .2s}
+.toast-ok{background:#166534;color:#fff}
+.toast-err{background:#991b1b;color:#fff}
+.toast-info{background:#1d4ed8;color:#fff}
+@keyframes slideIn{from{transform:translateX(20px);opacity:0}to{transform:none;opacity:1}}
+.hidden{display:none!important}
+/* Case card in flow */
+.case-card{background:var(--s2);border:1px solid var(--border);border-radius:10px;padding:12px 14px;margin-bottom:8px}
+.case-card-hdr{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:6px}
+.case-meta{font-size:11px;color:var(--t3);line-height:1.6}
+</style>
+</head>
+<body>
+
+<div class="login-wrap" id="login-page">
+  <div class="login-box">
+    <div class="login-logo">默聲創意</div>
+    <div class="login-sub" id="login-sub-text">季度獎金計算 · 請選擇帳號</div>
+    <div id="login-groups"></div>
+    <div id="login-pw-step" class="hidden">
+      <div class="login-pw-user" id="login-pw-user"></div>
+      <input class="login-pw-input" type="password" id="login-pw-input" placeholder="請輸入密碼" maxlength="40">
+      <div class="login-err" id="login-err"></div>
+      <button class="action-btn btn-primary" style="width:100%;padding:9px" onclick="submitLogin()">登入</button>
+      <div class="login-pw-back" style="margin-top:10px;text-align:center" onclick="backToLoginList()">← 重新選擇帳號</div>
+    </div>
+  </div>
+</div>
+
+<div class="hdr">
+  <div class="hdr-title">💰 季度獎金計算</div>
+  <div class="hdr-right">
+    <select class="season-sel" id="season-sel" onchange="onSeasonChange()">
+      <option value="2026-Q3">2026 Q3（7-9月）</option>
+      <option value="2026-Q4">2026 Q4（10-12月）</option>
+      <option value="2027-Q1">2027 Q1（1-3月）</option>
+    </select>
+    <div class="account-menu" id="account-menu">
+      <div class="who-badge" id="who-badge" onclick="toggleAccountMenu()">登入</div>
+      <div class="account-menu-dropdown hidden" id="account-menu-dropdown">
+        <div class="account-menu-item" onclick="openChangePwModal()">🔑 修改密碼</div>
+        <div class="account-menu-item danger" onclick="logout()">🚪 登出</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="nav" id="main-nav"></div>
+
+<div class="main">
+  <div id="pane-sales" class="hidden"><div id="sales-content"></div></div>
+  <div id="pane-pm" class="hidden"><div id="pm-content"></div></div>
+  <div id="pane-maint" class="hidden"><div id="maint-content"></div></div>
+  <div id="pane-design" class="hidden"><div id="design-content"></div></div>
+  <div id="pane-murphy" class="hidden"><div id="murphy-content"></div></div>
+  <div id="pane-admin" class="hidden"><div id="admin-content"></div></div>
+</div>
+<div id="toast-wrap"></div>
+<div id="modal-root"></div>
+
+<script>
+// ══ 常數 ══
+const STORAGE_KEY='morcept_bonus_v1';
+const CFG_KEY='morcept_cfg_v1';
+
+const MEMBERS={
+  murphy: {name:'Murphy', dept:'mgmt',   role:'super'},  // 最高管理者
+  annie:  {name:'Annie',  dept:'sales',  role:'member'},
+  sandra: {name:'Sandra', dept:'sales',  role:'member'},
+  elena:  {name:'Elena',  dept:'sales',  role:'assist'},
+  daniel: {name:'Daniel', dept:'pm',     role:'member'},
+  davis:  {name:'Davis',  dept:'pm',     role:'admin'},
+  shanna: {name:'Shanna', dept:'pm',     role:'member'},
+  jessie: {name:'Jessie', dept:'maint',  role:'member'},
+  bevic:  {name:'Bevic',  dept:'design', role:'lead'},
+  putting:{name:'布丁',   dept:'design', role:'exec'},
+  rori:   {name:'RORI',   dept:'design', role:'exec'},
+  mina:   {name:'MINA',   dept:'design', role:'exec'},
+  john:   {name:'John',   dept:'design', role:'collab'},
+  lisa:   {name:'Lisa',   dept:'design', role:'collab'},
+};
+
+// 案件狀態流程
+// 'pending_murphy' → 'pending_pm' → 'in_progress' → 'pending_design' → 'designing' → 'done'
+const CASE_STATUS={
+  pending_murphy: '待指派PM',
+  pending_pm:     '待PM確認',
+  in_progress:    'PM執行中',
+  pending_design: '待設計分派',
+  designing:      '設計中',
+  done:           '已結案',
+  void:           '已作廢',
+};
+
+let CFG={
+  pool:{sales:200000,pm:80000,maint:20000,design:100000},
+  salesMainCount:2, salesAssistCount:1,
+  // 新業務制度：個人各自計算，季進案業績（50%訂金未稅=認列業績）× 獎金係數
+  // 認列業績 = 季進案業績 × 50%
+  salesThresholds:[
+    {level:'門檻一', salesAmt:1800000, recogAmt:900000,  rate:0.015, bonus:13500,  monthly:600000,  challenge:false},
+    {level:'門檻二', salesAmt:2100000, recogAmt:1050000, rate:0.035, bonus:36750,  monthly:700000,  challenge:false},
+    {level:'門檻三', salesAmt:2600000, recogAmt:1300000, rate:0.050, bonus:65000,  monthly:866667,  challenge:false},
+    {level:'🔥 挑戰賽', salesAmt:3000000, recogAmt:1500000, rate:0.050, bonus:65000, monthly:1000000, challenge:true, challengeBonus:20000},
+  ],
+  // Elena：主要業務每人達任一門檻即觸發一次，共用池從 pool.sales 扣除主要業務獎金後的餘額
+  pmCount:3,
+  // 維運：加權續約率達標門檻（90%）→ 整包發放維運池；多年續率倍率
+  maintRenewThreshold:90,
+  maintYearMultiplier:[{yr:1,mult:1.0},{yr:3,mult:1.2},{yr:5,mult:1.5}],
+  // 維運協作團績（獨立預算）：三條件同時達標 → Daniel/Shanna/Davis 各領
+  pmCollabPool:30000,
+  pmCollabThresholds:{lineOA:80,maintSpeed:85,renewRate:90},
+  design:{execRatio:.6,collabRatio:.3,leadRatio:.1,extraMax:20},
+};
+
+let CUR_USER=null, CUR_SEASON='2026-Q3';
+let DB={};
+let PASSWORDS={}; // {memberId: 'plainPassword'} 存在 Firestore，與 DB 分開的文件
+let FB_READY=false;
+let _pendingLoginId=null;
+
+// ══ 資料存取（Firestore）══
+// Firestore 結構：
+//   collection 'app' → doc 'bonusDB'    {data: JSON字串}  ← 對應原本的 DB
+//   collection 'app' → doc 'bonusCFG'   {data: JSON字串}  ← 對應原本的 CFG
+//   collection 'app' → doc 'passwords'  {<memberId>: '密碼字串', ...}
+function fbReady(){return new Promise(res=>{
+  if(window.__fb){FB_READY=true;res();return;}
+  window.addEventListener('fb-ready',()=>{FB_READY=true;res();},{once:true});
+});}
+
+async function loadDB(){
+  await fbReady();
+  try{
+    const snap=await window.__fb.getDoc(window.__fb.doc(window.__fb.db,'app','bonusDB'));
+    if(snap.exists()){DB=JSON.parse(snap.data().data||'{}');}else{DB={};}
+  }catch(e){console.error('loadDB failed',e);DB={};}
+}
+async function loadCFG(){
+  await fbReady();
+  try{
+    const snap=await window.__fb.getDoc(window.__fb.doc(window.__fb.db,'app','bonusCFG'));
+    if(snap.exists())Object.assign(CFG,JSON.parse(snap.data().data||'{}'));
+  }catch(e){console.error('loadCFG failed',e);}
+}
+async function loadPasswords(){
+  await fbReady();
+  try{
+    const snap=await window.__fb.getDoc(window.__fb.doc(window.__fb.db,'app','passwords'));
+    if(snap.exists()){PASSWORDS=snap.data()||{};}
+    else{
+      // 第一次使用：建立預設密碼（全部 123456）並寫入
+      PASSWORDS={};
+      Object.keys(MEMBERS).forEach(id=>PASSWORDS[id]='123456');
+      await window.__fb.setDoc(window.__fb.doc(window.__fb.db,'app','passwords'),PASSWORDS);
+    }
+  }catch(e){console.error('loadPasswords failed',e);}
+}
+let _dbSaveTimer=null;
+function saveDB(){
+  // debounce 寫入，避免頻繁打字時瘋狂寫入 Firestore
+  clearTimeout(_dbSaveTimer);
+  _dbSaveTimer=setTimeout(async()=>{
+    try{
+      await window.__fb.setDoc(window.__fb.doc(window.__fb.db,'app','bonusDB'),{data:JSON.stringify(DB),updatedAt:Date.now(),updatedBy:CUR_USER||''});
+      toast('已儲存','ok');
+    }catch(e){console.error(e);toast('儲存失敗，請檢查網路','err');}
+  },350);
+}
+async function saveCFG(){
+  try{
+    await window.__fb.setDoc(window.__fb.doc(window.__fb.db,'app','bonusCFG'),{data:JSON.stringify(CFG)});
+  }catch(e){console.error(e);toast('設定儲存失敗','err');}
+}
+async function savePasswords(){
+  try{
+    await window.__fb.setDoc(window.__fb.doc(window.__fb.db,'app','passwords'),PASSWORDS);
+  }catch(e){console.error(e);toast('密碼儲存失敗','err');}
+}
+
+// 即時同步：其他人改了資料，這邊自動更新畫面
+function watchDBChanges(){
+  window.__fb.onSnapshot(window.__fb.doc(window.__fb.db,'app','bonusDB'),(snap)=>{
+    if(!snap.exists())return;
+    const remote=snap.data();
+    if(remote.updatedBy===CUR_USER)return; // 自己剛存的，不用重渲染
+    try{
+      DB=JSON.parse(remote.data||'{}');
+      if(CUR_USER)renderCurrentTab();
+    }catch(e){}
+  });
+}
+
+function getSeason(){if(!DB[CUR_SEASON])DB[CUR_SEASON]={cases:[],sales:{},pm:{},maint:{},design:{}};return DB[CUR_SEASON];}
+function getCases(){return getSeason().cases||(getSeason().cases=[]);}
+function getPMCollab(){
+  const s=getSeason();
+  if(!s.pm)s.pm={};
+  if(!s.pm.collab)s.pm.collab={lineOA:0,maintSpeed:0};
+  return s.pm.collab;
+}
+function getSales(who){const s=getSeason();if(!s.sales[who])s.sales[who]={deposits:[]};return s.sales[who];}
+function getPM(who){const s=getSeason();if(!s.pm[who])s.pm[who]={followOk:0,followTotal:0,crossOk:0,crossTotal:0,extra:0};return s.pm[who];}
+function getMaint(){
+  const s=getSeason();
+  if(!s.maint.jessie)s.maint.jessie={
+    total:0,    // 管理主機總數
+    exclude:0,  // 不可抗力排除（台）
+    renew1:0,   // 本季續約1年（台）
+    renew3:0,   // 本季續約3年（台）
+    renew5:0,   // 本季續約5年以上（台）
+  };
+  return s.maint.jessie;
+}
+function getDesignGlobal(){
+  const s=getSeason();
+  if(!s.design)s.design={};
+  if(!s.design.global)s.design.global={johnOk:false,lisaOk:false};
+  return s.design.global;
+}
+function uid(){return '_'+Math.random().toString(36).slice(2,8);}
+function fmt(n){return 'NT$'+(Math.round(n)||0).toLocaleString();}
+function toast(msg,type='ok'){
+  const el=document.createElement('div');
+  el.className=`toast toast-${type}`;el.textContent=msg;
+  document.getElementById('toast-wrap').appendChild(el);
+  setTimeout(()=>el.remove(),2200);
+}
+// 只有 Murphy、Davis 是管理者
+function isSuper(who){return who==='murphy';}
+function isAdmin(who){return who==='murphy'||who==='davis';}
+function isMurphy(who){return who==='murphy';}
+
+// ══ Login / Nav（帳號＋密碼）══
+function buildLoginList(){
+  const groups=[
+    {label:'👑 管理者',ids:['murphy'],cols:1},
+    {label:'💼 業務',  ids:['annie','sandra','elena'],cols:2},
+    {label:'📋 專案',  ids:['daniel','davis','shanna'],cols:2},
+    {label:'🔧 維運',  ids:['jessie'],cols:1},
+    {label:'🎨 設計',  ids:['bevic','putting','rori','mina','john','lisa'],cols:3},
+  ];
+  document.getElementById('login-groups').innerHTML=groups.map(g=>`
+    <div class="login-group">
+      <div class="login-group-label">${g.label}</div>
+      <div class="login-btns ${g.cols===3?'col3':''}">
+        ${g.ids.map(id=>`<button class="member-btn" onclick="selectLoginUser('${id}')">
+          <div class="mb-av">${MEMBERS[id].name[0]}</div>
+          <span>${MEMBERS[id].name}</span>
+        </button>`).join('')}
+      </div>
+    </div>`).join('');
+}
+
+// 第一步：選帳號 → 顯示密碼輸入框
+function selectLoginUser(id){
+  _pendingLoginId=id;
+  document.getElementById('login-groups').classList.add('hidden');
+  document.getElementById('login-sub-text').textContent='請輸入密碼';
+  document.getElementById('login-pw-step').classList.remove('hidden');
+  document.getElementById('login-pw-user').innerHTML=`<div class="mb-av">${MEMBERS[id].name[0]}</div><span style="font-weight:700">${MEMBERS[id].name}</span>`;
+  document.getElementById('login-err').textContent='';
+  const input=document.getElementById('login-pw-input');
+  input.value='';
+  setTimeout(()=>input.focus(),50);
+  input.onkeydown=(e)=>{if(e.key==='Enter')submitLogin();};
+}
+function backToLoginList(){
+  _pendingLoginId=null;
+  document.getElementById('login-groups').classList.remove('hidden');
+  document.getElementById('login-pw-step').classList.add('hidden');
+  document.getElementById('login-sub-text').textContent='季度獎金計算 · 請選擇帳號';
+}
+// 第二步：驗證密碼
+function submitLogin(){
+  const id=_pendingLoginId;
+  if(!id)return;
+  const input=document.getElementById('login-pw-input').value;
+  const real=PASSWORDS[id]||'123456';
+  if(input!==real){
+    document.getElementById('login-err').textContent='密碼錯誤，請再試一次';
+    return;
+  }
+  loginAs(id);
+}
+
+function loginAs(id){
+  CUR_USER=id;
+  _pendingLoginId=null;
+  document.getElementById('login-page').style.display='none';
+  document.getElementById('who-badge').textContent=MEMBERS[id]?.name||'';
+  buildNav(id);
+  const defaultTab=getDefaultTab(id);
+  curTab=defaultTab;
+  showPane(defaultTab);
+  renderCurrentTab();
+}
+function getDefaultTab(id){
+  const m=MEMBERS[id];
+  if(!m)return 'admin';
+  if(isMurphy(id)) return 'murphy';
+  if(isAdmin(id)) return m.dept==='pm'?'pm':'admin';
+  if(m.dept==='sales') return 'sales';
+  if(m.dept==='pm') return 'pm';
+  if(m.dept==='maint') return 'maint';
+  if(m.dept==='design') return 'design';
+  return 'admin';
+}
+function buildNav(id){
+  const tabs=getVisibleTabs(id);
+  document.getElementById('main-nav').innerHTML=tabs.map(t=>
+    `<button class="nav-tab" onclick="switchTab('${t.id}')">${t.label}</button>`
+  ).join('');
+}
+function getVisibleTabs(id){
+  const m=MEMBERS[id];
+  const role=m?.role;
+  const dept=m?.dept;
+  const all=[
+    {id:'sales',  label:'💼 業務'},
+    {id:'pm',     label:'📋 專案'},
+    {id:'maint',  label:'🔧 維運'},
+    {id:'design', label:'🎨 設計'},
+    {id:'murphy', label:'👑 指派'},
+    {id:'admin',  label:'⚙️ 管理'},
+  ];
+  if(isMurphy(id)) return all;
+  if(isAdmin(id)) return all.filter(t=>t.id!=='murphy');
+  if(dept==='sales') return [all[0]];
+  if(dept==='pm') return [all[1]];
+  if(dept==='maint') return [all[2]];
+  if(dept==='design') return [all[3]];
+  return [];
+}
+function logout(){
+  CUR_USER=null;
+  document.getElementById('account-menu-dropdown').classList.add('hidden');
+  document.getElementById('login-page').style.display='flex';
+  backToLoginList();
+}
+
+// ── 帳號選單（修改密碼/登出）──
+function toggleAccountMenu(e){
+  if(!CUR_USER){return;} // 尚未登入時點擊不開選單（會顯示登入頁，不會走到這）
+  e?.stopPropagation();
+  document.getElementById('account-menu-dropdown').classList.toggle('hidden');
+}
+document.addEventListener('click',(e)=>{
+  const menu=document.getElementById('account-menu');
+  const dd=document.getElementById('account-menu-dropdown');
+  if(menu&&dd&&!menu.contains(e.target))dd.classList.add('hidden');
+});
+
+// ── 修改自己的密碼 ──
+function openChangePwModal(){
+  document.getElementById('account-menu-dropdown').classList.add('hidden');
+  document.getElementById('modal-root').innerHTML=`
+    <div class="modal-mask" onclick="if(event.target===this)closeModal()">
+      <div class="modal-box">
+        <div class="modal-title">🔑 修改密碼</div>
+        <div style="font-size:12px;color:var(--t3);margin-bottom:10px">帳號：${MEMBERS[CUR_USER]?.name}</div>
+        <input class="login-pw-input" type="password" id="pw-old" placeholder="目前密碼">
+        <input class="login-pw-input" type="password" id="pw-new1" placeholder="新密碼（至少4碼）">
+        <input class="login-pw-input" type="password" id="pw-new2" placeholder="再次輸入新密碼">
+        <div class="login-err" id="pw-modal-err"></div>
+        <div style="display:flex;gap:8px;margin-top:6px">
+          <button class="action-btn" style="flex:1;background:var(--s3);color:var(--t2)" onclick="closeModal()">取消</button>
+          <button class="action-btn btn-primary" style="flex:1" onclick="submitChangePw()">確認修改</button>
+        </div>
+      </div>
+    </div>`;
+}
+function submitChangePw(){
+  const old=document.getElementById('pw-old').value;
+  const n1=document.getElementById('pw-new1').value;
+  const n2=document.getElementById('pw-new2').value;
+  const err=document.getElementById('pw-modal-err');
+  const real=PASSWORDS[CUR_USER]||'123456';
+  if(old!==real){err.textContent='目前密碼不正確';return;}
+  if(n1.length<4){err.textContent='新密碼至少需要 4 碼';return;}
+  if(n1!==n2){err.textContent='兩次輸入的新密碼不一致';return;}
+  PASSWORDS[CUR_USER]=n1;
+  savePasswords();
+  closeModal();
+  toast('密碼已更新','ok');
+}
+
+// ── 管理者重置他人密碼（在管理設定頁使用）──
+function openResetPwModal(targetId){
+  document.getElementById('modal-root').innerHTML=`
+    <div class="modal-mask" onclick="if(event.target===this)closeModal()">
+      <div class="modal-box">
+        <div class="modal-title">🔑 重置密碼</div>
+        <div style="font-size:12px;color:var(--t3);margin-bottom:10px">為 <strong style="color:var(--t1)">${MEMBERS[targetId]?.name}</strong> 設定新密碼</div>
+        <input class="login-pw-input" type="password" id="rpw-new1" placeholder="新密碼（至少4碼）">
+        <input class="login-pw-input" type="password" id="rpw-new2" placeholder="再次輸入新密碼">
+        <div class="login-err" id="rpw-modal-err"></div>
+        <div style="display:flex;gap:8px;margin-top:6px">
+          <button class="action-btn" style="flex:1;background:var(--s3);color:var(--t2)" onclick="closeModal()">取消</button>
+          <button class="action-btn btn-primary" style="flex:1" onclick="submitResetPw('${targetId}')">確認設定</button>
+        </div>
+      </div>
+    </div>`;
+}
+function submitResetPw(targetId){
+  const n1=document.getElementById('rpw-new1').value;
+  const n2=document.getElementById('rpw-new2').value;
+  const err=document.getElementById('rpw-modal-err');
+  if(n1.length<4){err.textContent='新密碼至少需要 4 碼';return;}
+  if(n1!==n2){err.textContent='兩次輸入的新密碼不一致';return;}
+  PASSWORDS[targetId]=n1;
+  savePasswords();
+  closeModal();
+  toast(`${MEMBERS[targetId]?.name} 的密碼已重置`,'ok');
+}
+function closeModal(){document.getElementById('modal-root').innerHTML='';}
+function onSeasonChange(){CUR_SEASON=document.getElementById('season-sel').value;renderCurrentTab();}
+
+let curTab='sales';
+function switchTab(tab){
+  curTab=tab;
+  showPane(tab);
+  document.querySelectorAll('.nav-tab').forEach(b=>{
+    b.classList.toggle('on',b.getAttribute('onclick')?.includes("'"+tab+"'"));
+  });
+  renderCurrentTab();
+}
+function showPane(tab){
+  ['sales','pm','maint','design','murphy','admin'].forEach(t=>{
+    document.getElementById('pane-'+t)?.classList.toggle('hidden',t!==tab);
+  });
+}
+function renderCurrentTab(){
+  if(curTab==='sales')  renderSalesPane();
+  else if(curTab==='pm') renderPMPane();
+  else if(curTab==='maint') renderMaintPane();
+  else if(curTab==='design') renderDesignPane();
+  else if(curTab==='murphy') renderMurphyPane();
+  else if(curTab==='admin') renderAdminPane();
+  // highlight nav
+  document.querySelectorAll('.nav-tab').forEach(b=>{
+    b.classList.toggle('on',b.getAttribute('onclick')?.includes("'"+curTab+"'"));
+  });
+}
+function seasonLabel(){
+  return {'2026-Q3':'2026 Q3（7-9月）','2026-Q4':'2026 Q4（10-12月）','2027-Q1':'2027 Q1（1-3月）'}[CUR_SEASON]||CUR_SEASON;
+}
+
+// ══════════════════════
+// 案件核心邏輯
+// ══════════════════════
+function addCase(salesId, client, caseType, plan, seoAdd, flatDesc, quote, deposit){
+  const cases=getCases();
+  const c={
+    id:uid(),
+    salesId,   // annie / sandra
+    client,
+    caseType,  // 'web' | 'flat'
+    plan,      // 網頁方案 or ''
+    seoAdd,    // bool
+    flatDesc,
+    quote:+quote||0,
+    deposit:+deposit||0,
+    pmId:null,
+    designId:null,  // 最終執案設計師
+    status:'pending_murphy',
+    createdAt:Date.now(),
+    pmNote:'',
+  };
+  cases.push(c);
+  saveDB();
+  return c;
+}
+function getCasesByStatus(status){return getCases().filter(c=>c.status===status);}
+function getCasesByPM(pmId){return getCases().filter(c=>c.pmId===pmId);}
+function getCasesByDesigner(designId){return getCases().filter(c=>c.designId===designId);}
+function getCasesByDesignType(type){
+  // type: 'web' | 'flat'
+  return getCases().filter(c=>c.caseType===type&&['pending_design','designing','done'].includes(c.status));
+}
+function caseStatusLabel(s){return CASE_STATUS[s]||s;}
+function caseStatusPill(s){
+  const cls={pending_murphy:'pill-orange',pending_pm:'pill-yellow',in_progress:'pill-blue',
+             pending_design:'pill-purple',designing:'pill-blue',done:'pill-green',void:'pill-gray'};
+  return `<span class="pill ${cls[s]||'pill-gray'}">${caseStatusLabel(s)}</span>`;
+}
+function caseCard(c,actions=''){
+  return `<div class="case-card">
+    <div class="case-card-hdr">
+      <div>
+        <div style="font-weight:700;font-size:13px;margin-bottom:3px">${c.client||'（未填客戶）'}</div>
+        <div class="case-meta">
+          ${c.caseType==='web'?`🌐 網頁・${c.plan||'未選方案'}${c.seoAdd?' +SEO':''}`:`🎨 平面${c.flatDesc?' · '+c.flatDesc:''}`}
+          &nbsp;·&nbsp; 報價 ${fmt(c.quote)} &nbsp;·&nbsp; 訂金 ${fmt(c.deposit)}
+          ${c.pmId?` &nbsp;·&nbsp; PM: ${MEMBERS[c.pmId]?.name}`:''}
+          ${c.designId?` &nbsp;·&nbsp; 設計: ${MEMBERS[c.designId]?.name}`:''}
+          ${c.status==='done'?` &nbsp;·&nbsp; <strong style="color:var(--green)">結案金額 ${fmt(c.quote)}</strong>`:''}
+        </div>
+      </div>
+      ${caseStatusPill(c.status)}
+    </div>
+    ${c.pmNote?`<div style="font-size:11px;color:var(--t3);margin-top:4px;padding:5px 8px;background:var(--s3);border-radius:5px">備註：${c.pmNote}</div>`:''}
+    ${actions?`<div style="display:flex;gap:6px;margin-top:8px;flex-wrap:wrap">${actions}</div>`:''}
+  </div>`;
+}
+
+// ══════════════════════
+// 業務 Tab
+// ══════════════════════
+function renderSalesPane(){
+  const who=CUR_USER;
+  const adm=isAdmin(who);
+  const targets=adm?['annie','sandra']:(MEMBERS[who]?.dept==='sales'&&MEMBERS[who]?.role!=='assist'?[who]:[]);
+  let html='';
+  html+=`<div class="notice">📅 ${seasonLabel()} · 業務填寫案件後，由 Murphy 指派 PM</div>`;
+  targets.forEach(tid=>{html+=buildSalesBlock(tid,adm||who===tid);});
+  if(MEMBERS[who]?.role==='assist'||adm){html+=buildElenaBlock(adm);}
+  html+=buildTeamBonusBlock(adm);
+  document.getElementById('sales-content').innerHTML=html;
+  targets.forEach(tid=>updateSalesResult(tid));
+  updateElenaResult();
+  updateTeamResult();
+}
+
+function buildSalesBlock(tid,editable){
+  const myCases=getCases().filter(c=>c.salesId===tid&&c.status!=='void');
+  const r=calcSalesBonus(tid);
+  const maxAmt=CFG.salesThresholds[CFG.salesThresholds.length-1].salesAmt;
+  const barPct=Math.min(100,r.salesAmt/maxAmt*100);
+
+  return `<div class="card">
+    <div class="card-hdr">
+      <div class="card-title">${MEMBERS[tid].name}</div>
+      <span class="pill ${r.reached?r.reached.challenge?'pill-orange':'pill-green':'pill-gray'}">
+        ${r.reached?r.reached.level+' 達標':'未達標'}
+      </span>
+    </div>
+    <div class="card-body">
+      ${editable?`<div class="sec-label">新增案件</div>
+      <div id="new-case-form-${tid}">${buildNewCaseForm(tid)}</div>
+      <div class="divider"></div>`:''}
+      <div class="sec-label">本季案件（${myCases.length} 件）</div>
+      ${myCases.length?myCases.map(c=>`<div style="display:flex;justify-content:space-between;align-items:center;padding:7px 10px;background:var(--s2);border-radius:7px;margin-bottom:5px;font-size:12px">
+        <div><strong>${c.client}</strong> &nbsp; ${c.caseType==='web'?c.plan||'未選方案':'平面'}${c.seoAdd?' +SEO':''} &nbsp; ${fmt(c.quote)}</div>
+        <div style="display:flex;align-items:center;gap:6px">${caseStatusPill(c.status)} ${fmt(c.deposit)} 訂金</div>
+      </div>`).join(''):`<div style="font-size:12px;color:var(--t3);padding:8px 0">尚無案件</div>`}
+      <div class="divider"></div>
+      <div class="sec-label">季進案業績達標進度</div>
+      <div style="position:relative;height:9px;background:var(--s3);border-radius:5px;margin-bottom:20px;margin-top:8px">
+        <div style="height:100%;width:${barPct}%;background:${r.reached?r.reached.challenge?'var(--orange)':'var(--green)':'var(--blue)'};border-radius:5px;transition:.4s"></div>
+        ${CFG.salesThresholds.map(th=>{
+          const pos=Math.min(100,th.salesAmt/maxAmt*100);
+          const hit=r.salesAmt>=th.salesAmt;
+          return `<div style="position:absolute;left:${pos}%;top:-5px;transform:translateX(-50%)">
+            <div style="width:2px;height:19px;background:${hit?'var(--green)':'#ccc'};margin:0 auto"></div>
+            <div style="font-size:9px;color:${hit?'var(--green)':'var(--t3)'};white-space:nowrap;transform:translateX(-40%);margin-top:2px">${th.challenge?'🔥':''}${Math.round(th.salesAmt/10000)}萬</div>
+          </div>`;
+        }).join('')}
+      </div>
+      <!-- 業績門檻對照表 -->
+      <div style="overflow-x:auto;margin-bottom:12px">
+        <table class="task-table" style="min-width:500px">
+          <thead><tr><th>門檻</th><th>季進案業績</th><th>認列業績(50%)</th><th>獎金係數</th><th>實領金額</th></tr></thead>
+          <tbody>
+            ${CFG.salesThresholds.map(th=>{
+              const hit=r.salesAmt>=th.salesAmt;
+              const isNow=r.reached?.level===th.level;
+              const bg=isNow?(th.challenge?'#fff7ed':'#f0fdf4'):'';
+              return `<tr style="background:${bg};font-weight:${isNow?700:400}">
+                <td>${th.level}</td>
+                <td>${fmt(th.salesAmt)}</td>
+                <td>${fmt(th.recogAmt)}</td>
+                <td style="color:${hit?'var(--green)':'var(--t2)'}">${(th.rate*100).toFixed(1)}%${th.challenge?' + 2萬加碼':''}</td>
+                <td style="color:${isNow?'var(--green)':'var(--t2)'}">${fmt(th.challenge?th.bonus+th.challengeBonus:th.bonus)}</td>
+              </tr>`;
+            }).join('')}
+          </tbody>
+        </table>
+      </div>
+      <div class="g3" style="margin-bottom:8px">
+        <div class="mini-stat"><div class="mini-stat-val" style="color:var(--blue)">${fmt(r.salesAmt)}</div><div class="mini-stat-lbl">季進案業績</div></div>
+        <div class="mini-stat"><div class="mini-stat-val" style="color:var(--t2)">${fmt(r.recogAmt)}</div><div class="mini-stat-lbl">認列業績（50%）</div></div>
+        <div class="mini-stat"><div class="mini-stat-val" style="color:${r.reached?'var(--green)':'var(--orange)'}">${fmt(r.totalBonus)}</div><div class="mini-stat-lbl">預估實領${r.isChallenge?' 🔥':''}</div></div>
+      </div>
+      ${r.isChallenge?`<div style="font-size:11px;padding:6px 10px;background:#fff7ed;border-radius:6px;color:var(--orange)">🔥 挑戰賽達標！基本獎金 ${fmt(r.bonus)} + 加碼 ${fmt(r.challengeBonus)} = ${fmt(r.totalBonus)}</div>`:''}
+    </div>
+  </div>`;
+}
+
+function buildNewCaseForm(tid){
+  return `<div style="background:var(--s2);border-radius:9px;padding:12px 14px">
+    <div class="field-row">
+      <span class="field-label">客戶名稱</span>
+      <input class="fi" type="text" id="nc-client-${tid}" placeholder="客戶公司名稱" maxlength="60" style="flex:1">
+    </div>
+    <div class="field-row">
+      <span class="field-label">案件類型</span>
+      <label style="display:flex;align-items:center;gap:5px;font-size:13px;cursor:pointer">
+        <input type="radio" name="nc-type-${tid}" value="web" checked onchange="toggleCaseType('${tid}')"> 🌐 網頁
+      </label>
+      <label style="display:flex;align-items:center;gap:5px;font-size:13px;cursor:pointer">
+        <input type="radio" name="nc-type-${tid}" value="flat" onchange="toggleCaseType('${tid}')"> 🎨 平面
+      </label>
+    </div>
+    <div id="nc-web-opts-${tid}">
+      <div class="field-row" style="flex-wrap:wrap;gap:5px">
+        <span class="field-label">網頁方案</span>
+        <div style="display:flex;flex-wrap:wrap;gap:5px">
+          ${['單頁式網站','標準多頁','品牌型錄','多語型錄','購物車'].map(p=>
+            `<label style="display:flex;align-items:center;gap:4px;font-size:12px;background:#fff;border:1px solid var(--border);border-radius:6px;padding:4px 8px;cursor:pointer">
+              <input type="radio" name="nc-plan-${tid}" value="${p}"> ${p}
+            </label>`).join('')}
+        </div>
+      </div>
+      <div class="field-row">
+        <span class="field-label"></span>
+        <label style="display:flex;align-items:center;gap:5px;font-size:12px;cursor:pointer">
+          <input type="checkbox" id="nc-seo-${tid}"> SEO 優化（附加）
+        </label>
+      </div>
+    </div>
+    <div id="nc-flat-opts-${tid}" style="display:none">
+      <div class="field-row">
+        <span class="field-label">平面品項</span>
+        <input class="fi" type="text" id="nc-flat-desc-${tid}" placeholder="例：資料夾、名片、DM" maxlength="60" style="flex:1">
+      </div>
+    </div>
+    <div class="field-row">
+      <span class="field-label">報價金額</span>
+      <input class="fi fi-md" type="number" id="nc-quote-${tid}" min="0" placeholder="0">
+      <span class="unit">元</span>
+    </div>
+    <div class="field-row">
+      <span class="field-label">訂金收款</span>
+      <input class="fi fi-md" type="number" id="nc-deposit-${tid}" min="0" placeholder="0">
+      <span class="unit">元</span>
+    </div>
+    <button class="action-btn btn-primary" style="margin-top:6px" onclick="submitNewCase('${tid}')">📤 送出案件給 Murphy</button>
+  </div>`;
+}
+
+function toggleCaseType(tid){
+  const type=document.querySelector(`[name="nc-type-${tid}"]:checked`)?.value;
+  document.getElementById('nc-web-opts-'+tid).style.display=type==='web'?'':'none';
+  document.getElementById('nc-flat-opts-'+tid).style.display=type==='flat'?'':'none';
+}
+
+function submitNewCase(tid){
+  const client=document.getElementById('nc-client-'+tid)?.value?.trim();
+  if(!client){toast('請填寫客戶名稱','err');return;}
+  const type=document.querySelector(`[name="nc-type-${tid}"]:checked`)?.value||'web';
+  const plan=type==='web'?(document.querySelector(`[name="nc-plan-${tid}"]:checked`)?.value||''):'';
+  const seo=type==='web'?!!(document.getElementById('nc-seo-'+tid)?.checked):false;
+  const flatDesc=type==='flat'?(document.getElementById('nc-flat-desc-'+tid)?.value||''):'';
+  const quote=document.getElementById('nc-quote-'+tid)?.value||0;
+  const deposit=document.getElementById('nc-deposit-'+tid)?.value||0;
+  addCase(tid,client,type,plan,seo,flatDesc,quote,deposit);
+  toast(`${client} 已送出，等待 Murphy 指派 PM`,'info');
+  renderSalesPane();
+}
+
+function buildElenaBlock(editable){
+  return `<div class="card">
+    <div class="card-hdr">
+      <div class="card-title">Elena <span style="font-size:11px;font-weight:400;color:var(--t3)">業務助理</span></div>
+      <div id="elena-pill"></div>
+    </div>
+    <div class="card-body">
+      <div class="notice">每位主要業務接案達標 → 觸發一次助理獎金</div>
+      <div id="elena-result"></div>
+    </div>
+  </div>`;
+}
+
+function buildTeamBonusBlock(editable){
+  const s=getSeason();
+  const auto=calcAutoTeamRate();
+  const manual=s.sales?.manualTeamRate;
+  const isAutoMode=(manual===undefined||manual===null||manual==='');
+  const teamRate=isAutoMode?auto.rate:(+manual/100);
+  const teamReached=teamRate>0.6;
+  return `<div class="card">
+    <div class="card-hdr">
+      <div class="card-title">🤝 合作獎金（共享）</div>
+      <span class="pill ${teamReached?'pill-green':'pill-gray'}">${Math.round(teamRate*100)}% ${teamReached?'✅ 達標':'未達60%'}</span>
+    </div>
+    <div class="card-body">
+      <div class="notice">PM 案件整體結案率 &gt; 60% 才啟動，Annie / Sandra 平均分配（12月發放）</div>
+      <div style="background:var(--s2);border-radius:9px;padding:11px 13px;margin-bottom:10px">
+        <div style="display:flex;gap:14px;font-size:12px;margin-bottom:6px">
+          <span>案件總數 <strong>${auto.totalTasks}</strong></span>
+          <span>已結案 <strong style="color:var(--green)">${auto.doneTasks}</strong></span>
+          <span>結案率 <strong style="color:${teamReached?'var(--green)':'var(--orange)'}">${Math.round(teamRate*100)}%</strong></span>
+        </div>
+        <div style="position:relative;height:7px;background:var(--s3);border-radius:4px">
+          <div style="height:100%;width:${Math.min(100,teamRate*100)}%;background:${teamReached?'var(--green)':'var(--blue)'};border-radius:4px;transition:.4s"></div>
+          <div style="position:absolute;left:60%;top:-5px;transform:translateX(-50%)">
+            <div style="width:2px;height:17px;background:${teamReached?'var(--green)':'#ccc'};margin:0 auto"></div>
+            <div style="font-size:9px;color:${teamReached?'var(--green)':'var(--t3)'};white-space:nowrap;transform:translateX(-40%);margin-top:1px">60%</div>
+          </div>
+        </div>
+      </div>
+      ${editable?`<div class="field-row" style="margin-bottom:8px">
+        <span class="field-label">手動覆蓋結案率</span>
+        <input class="fi fi-sm" type="number" min="0" max="100" value="${s.sales?.manualTeamRate??''}" placeholder="自動"
+          oninput="setManualTeamRate(this.value)">
+        <span class="unit">%（留空=自動）</span>
+      </div>`:''}
+      <div id="team-result"></div>
+    </div>
+  </div>`;
+}
+
+// 銷售計算（新制：季進案業績 × 50% = 認列業績，對應門檻後 × 獎金係數 = 實領）
+function calcSalesBonus(tid){
+  const myCases=getCases().filter(c=>c.salesId===tid&&c.status!=='void');
+  // 季進案業績 = 所有案件報價加總（含未結案）
+  const salesAmt=myCases.reduce((s,c)=>s+(+c.quote||0),0);
+  // 認列業績 = 季進案業績 × 50%
+  const recogAmt=Math.round(salesAmt*0.5);
+  // 已結案金額（另外顯示）
+  const doneAmt=myCases.filter(c=>c.status==='done').reduce((s,c)=>s+(+c.quote||0),0);
+  const doneCount=myCases.filter(c=>c.status==='done').length;
+
+  // 找到達標的最高門檻（以季進案業績判斷）
+  const ths=[...CFG.salesThresholds].sort((a,b)=>b.salesAmt-a.salesAmt);
+  const reached=ths.find(t=>salesAmt>=t.salesAmt)||null;
+
+  const bonus=reached?reached.bonus:0;
+  const challengeBonus=(reached&&reached.challenge)?reached.challengeBonus:0;
+  const totalBonus=bonus+challengeBonus;
+  const isChallenge=!!(reached&&reached.challenge);
+
+  return {salesAmt,recogAmt,doneAmt,doneCount,reached,bonus,challengeBonus,totalBonus,isChallenge};
+}
+function calcAutoTeamRate(){
+  const cases=getCases().filter(c=>c.pmId&&c.caseType==='web'&&c.status!=='void');
+  const total=cases.length, done=cases.filter(c=>c.status==='done').length;
+  return {totalTasks:total,doneTasks:done,rate:total>0?done/total:0};
+}
+function setManualTeamRate(val){
+  const s=getSeason();if(!s.sales)s.sales={};
+  s.sales.manualTeamRate=(val===''||val==null)?null:Math.min(100,Math.max(0,+val));
+  saveDB();updateTeamResult();
+}
+function updateSalesResult(tid){
+  // 保留空函式（相容性）
+}
+function updateElenaResult(){
+  const el=document.getElementById('elena-result');
+  const pill=document.getElementById('elena-pill');
+  if(!el)return;
+  // Elena：每位主要業務達任一門檻就觸發一次
+  const annieR=calcSalesBonus('annie');
+  const sandraR=calcSalesBonus('sandra');
+  const annieOk=!!annieR.reached;
+  const sandraOk=!!sandraR.reached;
+  const triggered=(annieOk?1:0)+(sandraOk?1:0);
+  // Elena 獎金池 = pool.sales 減去兩位主要業務實領獎金後的餘額
+  const mainUsed=(annieR.totalBonus||0)+(sandraR.totalBonus||0);
+  const elenaPool=Math.max(0, CFG.pool.sales-mainUsed);
+  const perTrigger=CFG.salesMainCount>0?Math.round(elenaPool/CFG.salesMainCount):0;
+  const perAssist=CFG.salesAssistCount>0?Math.round(perTrigger/CFG.salesAssistCount):0;
+  const bonus=Math.round(triggered*perAssist);
+  if(pill)pill.innerHTML=bonus>0?`<span class="pill pill-green">預估 ${fmt(bonus)}</span>`:`<span class="pill pill-gray">尚無達標</span>`;
+  el.innerHTML=`<div class="g2" style="margin-bottom:8px">
+    <div style="padding:9px 11px;background:${annieOk?'#dcfce7':'var(--s2)'};border-radius:8px;border-left:3px solid ${annieOk?'var(--green)':'var(--border)'}">
+      <div style="font-size:12px;font-weight:600">Annie ${annieOk?'✅ 達標（'+annieR.reached?.level+'）':'⏳ 未達標'}</div>
+    </div>
+    <div style="padding:9px 11px;background:${sandraOk?'#dcfce7':'var(--s2)'};border-radius:8px;border-left:3px solid ${sandraOk?'var(--green)':'var(--border)'}">
+      <div style="font-size:12px;font-weight:600">Sandra ${sandraOk?'✅ 達標（'+sandraR.reached?.level+'）':'⏳ 未達標'}</div>
+    </div>
+  </div>
+  <div class="result-bar">
+    <div><div class="result-label">Elena 預估可領</div><div class="result-amount">${fmt(bonus)}</div>
+    <div class="result-detail">共用池約 ${fmt(elenaPool)}，${triggered}/${CFG.salesMainCount} 位達標觸發</div></div>
+  </div>`;
+}
+function updateTeamResult(){
+  const el=document.getElementById('team-result');
+  if(!el)return;
+  const s=getSeason();
+  const auto=calcAutoTeamRate();
+  const manual=s.sales?.manualTeamRate;
+  const isAuto=(manual===undefined||manual===null||manual==='');
+  const rate=isAuto?auto.rate:(+manual/100);
+  const teamReached=rate>0.6;
+  // 合作池 = 業務總池 - 兩人接案獎金實領 - Elena助理池
+  const annieR=calcSalesBonus('annie'), sandraR=calcSalesBonus('sandra');
+  const mainUsed=(annieR.bonus||0)+(sandraR.bonus||0);
+  const elenaPool=Math.max(0,CFG.pool.sales-mainUsed);
+  const collabPool=Math.max(0,CFG.pool.sales-mainUsed-elenaPool);
+  // 實際上合作池取自 pool.sales 的一部分，簡化：直接用剩餘池 × 結案率
+  // 依文件：預估獎金 = 合作池 × 結案率 ÷ 人數，合作池由管理者設定，先以剩餘算
+  const each=teamReached?Math.round((CFG.pool.sales-mainUsed)*rate/2):0;
+  el.innerHTML=teamReached
+    ?`<div class="g2">
+        <div class="mini-stat"><div class="mini-stat-val" style="color:var(--green)">${fmt(each)}</div><div class="mini-stat-lbl">Annie 合作獎金預估</div></div>
+        <div class="mini-stat"><div class="mini-stat-val" style="color:var(--green)">${fmt(each)}</div><div class="mini-stat-lbl">Sandra 合作獎金預估</div></div>
+      </div>
+      <div style="font-size:11px;color:var(--t3);margin-top:7px">結案率 ${Math.round(rate*100)}% > 60%，啟動合作獎金 · 12月發放</div>`
+    :`<div style="font-size:12px;color:var(--t3);padding:8px 0">結案率未達 60%，合作獎金本季不啟動</div>`;
+}
+
+// ══════════════════════
+// Murphy Tab（指派中心）
+// ══════════════════════
+function renderMurphyPane(){
+  let murphySubTab=window._murphySubTab||'assign';
+  const cases=getCases();
+  const pending=cases.filter(c=>c.status==='pending_murphy');
+  const all=cases;
+
+  document.getElementById('murphy-content').innerHTML=`
+    <div class="sub-nav">
+      <button class="sub-tab ${murphySubTab==='assign'?'on':''}" onclick="window._murphySubTab='assign';renderMurphyPane()">📥 待指派（${pending.length}）</button>
+      <button class="sub-tab ${murphySubTab==='all'?'on':''}" onclick="window._murphySubTab='all';renderMurphyPane()">📋 所有案件</button>
+      <button class="sub-tab ${murphySubTab==='design_extra'?'on':''}" onclick="window._murphySubTab='design_extra';renderMurphyPane()">✅ 設計個績評定</button>
+    </div>
+    <div id="murphy-sub"></div>`;
+
+  if(murphySubTab==='assign') renderMurphyAssign();
+  else if(murphySubTab==='all') renderMurphyAll();
+  else if(murphySubTab==='design_extra') renderMurphyDesignExtra();
+}
+
+function renderMurphyAssign(){
+  const pending=getCases().filter(c=>c.status==='pending_murphy');
+  const el=document.getElementById('murphy-sub');
+  if(!el)return;
+
+  el.innerHTML=`
+    <div class="notice">📊 專案部依「結案金額佔比」分潤，指派時不需設定難度係數</div>
+    ${pending.length===0?`<div class="card"><div class="card-body" style="text-align:center;padding:24px;color:var(--t3)">目前沒有待指派的案件</div></div>`
+    :pending.map(c=>{
+      const pmIds=['daniel','davis','shanna'];
+      // 各PM本季已結案金額
+      const pmAmts=pmIds.map(id=>{
+        const r=calcPMShare(id);
+        return `${MEMBERS[id].name}(${fmt(r.doneAmt)})`;
+      }).join('・');
+
+      return `<div class="card">
+        <div class="card-body">
+          <div class="case-card-hdr" style="margin-bottom:10px">
+            <div>
+              <div style="font-weight:700;font-size:14px;margin-bottom:4px">${c.client}</div>
+              <div class="case-meta">
+                業務：${MEMBERS[c.salesId]?.name} &nbsp;·&nbsp;
+                ${c.caseType==='web'?`🌐 ${c.plan||'未選'}${c.seoAdd?' +SEO':''}`:`🎨 平面${c.flatDesc?' · '+c.flatDesc:''}`}
+                &nbsp;·&nbsp; 報價 ${fmt(c.quote)} &nbsp;·&nbsp; 訂金 ${fmt(c.deposit)}
+              </div>
+              <div style="font-size:11px;color:var(--t3);margin-top:4px">各 PM 本季已結案金額：${pmAmts}</div>
+            </div>
+            <span class="pill pill-orange">待指派</span>
+          </div>
+          <div class="field-row">
+            <span class="field-label">指派給 PM</span>
+            <select class="fi fi-md" id="assign-pm-${c.id}">
+              <option value="">— 選擇 PM —</option>
+              ${pmIds.map(id=>`<option value="${id}">${MEMBERS[id].name}</option>`).join('')}
+            </select>
+            <button class="action-btn btn-primary" onclick="murphyAssignPM('${c.id}')">✅ 指派</button>
+          </div>
+        </div>
+      </div>`;
+    }).join('')}`;
+}
+
+function murphyAssignPM(cid){
+  const pmId=document.getElementById('assign-pm-'+cid)?.value;
+  if(!pmId){toast('請選擇 PM','err');return;}
+  const c=getCases().find(x=>x.id===cid);
+  if(!c)return;
+  c.pmId=pmId;
+  c.status='pending_pm';
+  saveDB();
+  toast(`${c.client} 已指派給 ${MEMBERS[pmId].name}`,'ok');
+  renderMurphyPane();
+}
+
+function renderMurphyAll(){
+  const el=document.getElementById('murphy-sub');
+  if(!el)return;
+  const cases=getCases();
+  const grouped={};
+  Object.keys(CASE_STATUS).forEach(s=>grouped[s]=[]);
+  cases.forEach(c=>{if(grouped[c.status])grouped[c.status].push(c);});
+  el.innerHTML=Object.entries(grouped).filter(([s,arr])=>arr.length).map(([s,arr])=>`
+    <div class="sec-label">${caseStatusLabel(s)}（${arr.length}件）</div>
+    ${arr.map(c=>{
+      const acts=[];
+      if(c.status!=='void'&&c.status!=='done'){
+        acts.push(`<button class="action-btn" style="background:#fee2e2;color:#991b1b;font-size:11px;padding:5px 10px" onclick="voidCase('${c.id}')">🚫 作廢</button>`);
+      }
+      if(c.status==='void'){
+        acts.push(`<button class="action-btn btn-blue" style="font-size:11px;padding:5px 10px" onclick="restoreCase('${c.id}')">↩️ 還原</button>`);
+        acts.push(`<button class="action-btn" style="background:#7f1d1d;color:#fff;font-size:11px;padding:5px 10px" onclick="deleteCase('${c.id}')">🗑 永久刪除</button>`);
+      }
+      return caseCard(c, acts.join(''));
+    }).join('')}
+  `).join('');
+}
+
+function renderMurphyDesignExtra(){
+  const el=document.getElementById('murphy-sub');
+  if(!el)return;
+  const g=getDesignGlobal();
+  const pool=CFG.pool.design||0;
+  const execIds=['putting','rori','mina'];
+  el.innerHTML=`
+    <div class="notice">⚠️ 個績評定僅 Murphy 可見</div>
+    <div class="card">
+      <div class="card-hdr"><div class="card-title">✅ 設計部個績評定</div></div>
+      <div class="card-body">
+        <div class="sec-label">John / Lisa 個績評定</div>
+        <div style="display:flex;gap:10px;flex-wrap:wrap">
+          ${['john','lisa'].map(id=>`<label style="display:flex;align-items:center;gap:7px;cursor:pointer;padding:9px 12px;background:var(--s2);border-radius:8px;font-size:13px">
+            <input type="checkbox" ${g[id+'Ok']?'checked':''}
+              onchange="setDesignGlobalField('${id}Ok',this.checked)">
+            ${MEMBERS[id].name} 個績達標（+ ${fmt(Math.round(pool*.05))}）
+          </label>`).join('')}
+        </div>
+        <div class="divider"></div>
+        <div class="sec-label">部門結案率（自動計算）</div>
+        ${buildDesignRateDisplay()}
+      </div>
+    </div>`;
+}
+function setDesignGlobalField(key,val){
+  const g=getDesignGlobal();g[key]=val;saveDB();renderMurphyPane();
+}
+
+// ══════════════════════
+// PM Tab
+// ══════════════════════
+let pmSubTab='cases';
+function renderPMPane(){
+  const who=CUR_USER;
+  const adm=isAdmin(who);
+  const targets=adm?['daniel','davis','shanna']:(MEMBERS[who]?.dept==='pm'?[who]:[]);
+  const pmSubTab=window._pmSubTab||'cases';
+
+  document.getElementById('pm-content').innerHTML=`
+    <div class="sub-nav">
+      <button class="sub-tab ${pmSubTab==='cases'?'on':''}" onclick="window._pmSubTab='cases';renderPMPane()">📋 案件列表</button>
+      <button class="sub-tab ${pmSubTab==='score'?'on':''}" onclick="window._pmSubTab='score';renderPMPane()">📊 結案佔比</button>
+    </div>
+    <div id="pm-sub"></div>`;
+
+  if(pmSubTab==='cases') renderPMCases(targets,adm,who);
+  else renderPMScore(targets,adm,who);
+}
+
+function buildPMCollabBlock(adm){
+  const d=getPMCollab();
+  const r=calcPMCollabBonus();
+  const th=CFG.pmCollabThresholds;
+  const rows=[
+    ['① LINE OA 回覆速度（工作時間內 2 小時內回覆率）','lineOA',th.lineOA,r.lineOA,r.ok1],
+    ['② 維運任務處理速度（3 個工作天內完成率）','maintSpeed',th.maintSpeed,r.maintSpeed,r.ok2],
+  ];
+  return `<div class="team-chip">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:5px">
+      <div style="font-size:13px;font-weight:700">🤝 維運協作團績 · Daniel / Shanna / Davis · 從共用池各 +${fmt(r.pool/3)}</div>
+      ${r.allOk?'<span class="pill pill-green">✅ 已達標</span>':'<span class="pill pill-gray">未達標</span>'}
+    </div>
+    <div style="font-size:12px;color:var(--t3);margin-bottom:8px">目前維運僅 Jessie 一人，專案部協助回覆維運客戶訊息與處理任務，有助於提升客戶滿意度與續約率。三個條件<strong>同時達標</strong>才發，任一未達不發。</div>
+    <div style="display:grid;gap:4px;font-size:12px;margin-bottom:8px">
+      ${rows.map(([label,key,thresh,val,ok])=>`
+        <div style="display:flex;align-items:center;gap:6px;padding:5px 9px;background:rgba(255,255,255,.6);border-radius:6px">
+          <span style="flex:1;color:var(--t2)">${label}</span>
+          ${adm?`<input class="fi fi-sm" style="width:70px;padding:4px 6px" type="number" min="0" max="100" value="${d[key]||''}" placeholder="0"
+              oninput="setPMCollabField('${key}',+this.value)"> <span class="unit">%</span>`
+            :`<strong style="color:${ok?'var(--green)':'var(--t3)'}">${val}%</strong>`}
+          <span style="color:var(--t3)">門檻 ≥ ${thresh}%</span>
+          <span style="color:${ok?'var(--green)':'var(--t3)'}">${ok?'✅':'—'}</span>
+        </div>`).join('')}
+      <div style="display:flex;align-items:center;gap:6px;padding:5px 9px;background:rgba(255,255,255,.6);border-radius:6px">
+        <span style="flex:1;color:var(--t2)">③ Jessie 加權主機續約率同步達標</span>
+        <strong style="color:${r.ok3?'var(--green)':'var(--t3)'}">${r.renewRate}%</strong>
+        <span style="color:var(--t3)">門檻 ≥ ${th.renewRate}%</span>
+        <span style="color:${r.ok3?'var(--green)':'var(--t3)'}">${r.ok3?'✅':'—'}</span>
+        <span style="font-size:10px;color:var(--t3)">（自動帶入維運分頁）</span>
+      </div>
+    </div>
+    <div style="padding:8px 10px;border-radius:6px;background:${r.allOk?'#f0fdf4':'var(--s2)'};font-size:11px;color:${r.allOk?'var(--green)':'var(--t3)'}">
+      條件③確保 PM 的協助真的轉化成續約成果，不是只有回覆但沒有推進。
+      三個條件同時達標 → Daniel / Shanna / Davis 各領 ${fmt(r.pool/3)}，共 ${fmt(r.pool)}，從共用池支出（獨立於專案分潤池與維運獎金池之外）。
+    </div>
+  </div>`;
+}
+function setPMCollabField(key,val){
+  const d=getPMCollab();d[key]=val;saveDB();renderPMPane();
+}
+
+function renderPMCases(targets,adm,who){
+  const el=document.getElementById('pm-sub');
+  if(!el)return;
+  let html='';
+
+  // 維運協作團績
+  html+=buildPMCollabBlock(adm);
+
+  targets.forEach(tid=>{
+    const myCases=getCasesByPM(tid).filter(c=>c.status!=='void');
+    const r=calcPMShare(tid);
+    html+=`<div class="card">
+      <div class="card-hdr">
+        <div class="card-title">${MEMBERS[tid].name}</div>
+        <span class="pill pill-green">已結案 ${fmt(r.doneAmt)}</span>
+      </div>
+      <div class="card-body">
+        ${myCases.length===0?`<div style="font-size:12px;color:var(--t3);padding:8px 0">目前沒有指派案件</div>`
+        :myCases.map(c=>{
+          const actions=[];
+          // PM 確認（pending_pm → in_progress）
+          if(c.status==='pending_pm'&&(adm||who===tid)){
+            actions.push(`<button class="action-btn btn-blue" onclick="pmConfirmCase('${c.id}')">✅ 確認承接</button>`);
+          }
+          // 發送設計（in_progress → pending_design）
+          if(c.status==='in_progress'&&(adm||who===tid)){
+            actions.push(`<button class="action-btn btn-orange" onclick="pmSendToDesign('${c.id}')">🎨 發送給設計</button>`);
+          }
+          // 確認完成（designing → done）
+          if(c.status==='designing'&&(adm||who===tid)){
+            actions.push(`<button class="action-btn btn-green" onclick="pmConfirmDone('${c.id}')">🏁 確認結案</button>`);
+          }
+          return caseCard(c,actions.join(''));
+        }).join('')}
+      </div>
+    </div>`;
+  });
+  el.innerHTML=html;
+}
+
+function pmConfirmCase(cid){
+  const c=getCases().find(x=>x.id===cid);
+  if(!c)return;
+  c.status='in_progress';
+  saveDB();toast(`${c.client} 已確認承接`,'ok');renderPMPane();
+}
+function pmSendToDesign(cid){
+  const c=getCases().find(x=>x.id===cid);
+  if(!c)return;
+  c.status='pending_design';
+  // 平面直接指派 Bevic
+  if(c.caseType==='flat'){c.designId='bevic';c.status='designing';}
+  saveDB();
+  toast(`${c.client} 已發送給${c.caseType==='flat'?'Bevic（平面）':'設計（布丁分派）'}`,'ok');
+  renderPMPane();
+}
+function pmConfirmDone(cid){
+  const c=getCases().find(x=>x.id===cid);
+  if(!c)return;
+  c.status='done';
+  saveDB();toast(`${c.client} 已結案`,'ok');renderPMPane();
+}
+
+function renderPMScore(targets,adm,who){
+  const el=document.getElementById('pm-sub');
+  if(!el)return;
+  const pmIds=['daniel','davis','shanna'];
+  const allShares=pmIds.map(id=>({id,...calcPMShare(id)}));
+  const totalAmt=allShares.reduce((s,x)=>s+x.doneAmt,0);
+  const collab=calcPMCollabBonus();
+
+  let html=`
+    <div class="notice">個人實領 = 個人結案金額 ÷ 三人結案金額總和 × ${fmt(CFG.pool.pm)}（無門檻、無個人上限）${collab.allOk?` ＋ 維運協作團績 ${fmt(collab.perPerson)}`:''}</div>
+    <div class="card" style="margin-bottom:12px">
+      <div class="card-hdr"><div class="card-title">📊 結案金額佔比總覽</div></div>
+      <div class="card-body" style="padding:0">
+        <table class="task-table">
+          <thead><tr><th>專案人員</th><th>結案金額</th><th>佔比</th><th>分潤獎金</th><th>協作團績</th><th>合計</th></tr></thead>
+          <tbody>
+            ${allShares.map(s=>`<tr>
+              <td><strong>${MEMBERS[s.id].name}</strong></td>
+              <td>${fmt(s.doneAmt)}</td>
+              <td>${totalAmt>0?Math.round(s.doneAmt/totalAmt*100):0}%</td>
+              <td>${fmt(s.bonus)}</td>
+              <td>${collab.allOk?fmt(collab.perPerson):'—'}</td>
+              <td><strong style="color:var(--green)">${fmt(s.bonus+(collab.allOk?collab.perPerson:0))}</strong></td>
+            </tr>`).join('')}
+          </tbody>
+        </table>
+      </div>
+    </div>`;
+
+  targets.forEach(tid=>{
+    const r=calcPMShare(tid);
+    const pct=totalAmt>0?Math.round(r.doneAmt/totalAmt*100):0;
+    const collabAmt=collab.allOk?collab.perPerson:0;
+    html+=`<div class="card">
+      <div class="card-hdr">
+        <div class="card-title">${MEMBERS[tid].name}</div>
+        <span class="pill pill-green">${pct}% 佔比</span>
+      </div>
+      <div class="card-body">
+        <div class="g3" style="margin-bottom:12px">
+          <div class="mini-stat"><div class="mini-stat-val" style="color:var(--blue)">${fmt(r.doneAmt)}</div><div class="mini-stat-lbl">本季結案金額（${r.doneCount}件）</div></div>
+          <div class="mini-stat"><div class="mini-stat-val" style="color:var(--t2)">${pct}%</div><div class="mini-stat-lbl">三人結案金額佔比</div></div>
+          <div class="mini-stat"><div class="mini-stat-val" style="color:var(--green)">${fmt(r.bonus+collabAmt)}</div><div class="mini-stat-lbl">預估實領獎金合計</div></div>
+        </div>
+        <div class="result-bar">
+          <div><div class="result-label">預估獎金</div><div class="result-amount">${fmt(r.bonus+collabAmt)}</div>
+            <div class="result-detail">分潤 ${fmt(r.bonus)}${collabAmt?' ＋ 協作團績 '+fmt(collabAmt):''}</div></div>
+        </div>
+      </div>
+    </div>`;
+  });
+  el.innerHTML=html;
+}
+
+function voidCase(cid){
+  const c=getCases().find(x=>x.id===cid);
+  if(!c)return;
+  if(!confirm(`確定要作廢「${c.client}」這筆案件嗎？
+作廢後不會被計入任何獎金統計。`))return;
+  c.status='void';
+  saveDB();
+  toast(`${c.client} 已作廢`,'info');
+  renderCurrentTab();
+}
+function deleteCase(cid){
+  const cases=getCases();
+  const c=cases.find(x=>x.id===cid);
+  if(!c)return;
+  if(!confirm(`確定要【永久刪除】「${c.client}」嗎？
+刪除後無法復原。`))return;
+  const idx=cases.indexOf(c);
+  cases.splice(idx,1);
+  saveDB();
+  toast(`${c.client} 已刪除`,'info');
+  renderCurrentTab();
+}
+function restoreCase(cid){
+  const c=getCases().find(x=>x.id===cid);
+  if(!c)return;
+  c.status='pending_murphy';
+  saveDB();
+  toast(`${c.client} 已還原為待指派`,'ok');
+  renderCurrentTab();
+}
+
+// 專案部新算法：個人實領 = 個人結案金額 ÷ 三人結案金額總和 × 獎金池（無門檻、無上限）
+function calcPMShare(tid){
+  const pmIds=['daniel','davis','shanna'];
+  const myCases=getCasesByPM(tid).filter(c=>c.status!=='void');
+  const doneCases=myCases.filter(c=>c.status==='done');
+  const doneAmt=doneCases.reduce((s,c)=>s+(+c.quote||0),0);
+  const doneCount=doneCases.length;
+
+  // 計算三人結案金額總和
+  const totalAmt=pmIds.reduce((sum,id)=>{
+    const cs=getCasesByPM(id).filter(c=>c.status==='done');
+    return sum+cs.reduce((s,c)=>s+(+c.quote||0),0);
+  },0);
+
+  const bonus=totalAmt>0?Math.round(doneAmt/totalAmt*CFG.pool.pm):0;
+  return {doneAmt,doneCount,totalAmt,bonus};
+}
+
+// 維運協作團績（獨立預算）：LINE OA回覆率、維運任務處理速度（主管判定填寫）+ Jessie加權續約率（自動帶入）
+// 三條件同時達標 → Daniel/Shanna/Davis 各領 NT$10,000（共用池 NT$30,000）
+function calcPMCollabBonus(){
+  const d=getPMCollab();
+  const th=CFG.pmCollabThresholds;
+  const lineOA=+d.lineOA||0;
+  const maintSpeed=+d.maintSpeed||0;
+  const renewRate=calcMaintBonus().weightedRate;
+
+  const ok1=lineOA>=th.lineOA;
+  const ok2=maintSpeed>=th.maintSpeed;
+  const ok3=renewRate>=th.renewRate;
+  const allOk=ok1&&ok2&&ok3;
+  const perPerson=allOk?Math.round(CFG.pmCollabPool/3):0;
+
+  return {lineOA,maintSpeed,renewRate,ok1,ok2,ok3,allOk,perPerson,pool:CFG.pmCollabPool};
+}
+
+// ══════════════════════
+// 維運 Tab
+// ══════════════════════
+function renderMaintPane(){
+  const who=CUR_USER;
+  const editable=(who==='jessie'||isAdmin(who));
+  const adm=isAdmin(who);
+  const d=getMaint();
+  const r=calcMaintBonus();
+  document.getElementById('maint-content').innerHTML=`
+    <div class="notice">📌 計算對象：挑戰賽三個月內新承接案件（不含既有案量）・結算時間：挑戰賽結束後第 2 個月底</div>
+
+    <div class="card">
+      <div class="card-hdr">
+        <div class="card-title">Jessie · 加權續約率</div>
+        <span class="pill ${r.reached?'pill-green':'pill-orange'}">${r.weightedRate}% ${r.reached?'✅ 達標':'未達標'}</span>
+      </div>
+      <div class="card-body">
+        <div class="sec-label">本季主機資料</div>
+        <div class="field-row">
+          <span class="field-label">管理主機總數</span>
+          <input class="fi fi-sm" type="number" min="0" value="${d.total||''}" placeholder="0"
+            oninput="setMaintField('total',+this.value)" ${editable?'':'disabled'}>
+          <span class="unit">台</span>
+          <span style="font-size:11px;color:var(--t3)">到期需續約數 = 主機總數 × 90%</span>
+        </div>
+        <div class="field-row">
+          <span class="field-label">不可抗力排除</span>
+          <input class="fi fi-sm" type="number" min="0" value="${d.exclude||''}" placeholder="0"
+            oninput="setMaintField('exclude',+this.value)" ${editable?'':'disabled'}>
+          <span class="unit">台</span>
+          <span style="font-size:11px;color:var(--t3)">客戶結束營業等</span>
+        </div>
+        <div class="divider"></div>
+        <div class="sec-label">本季續約件數（依年限分開填寫）</div>
+        <div class="field-row">
+          <span class="field-label">續約 1 年</span>
+          <input class="fi fi-sm" type="number" min="0" value="${d.renew1||''}" placeholder="0"
+            oninput="setMaintField('renew1',+this.value)" ${editable?'':'disabled'}>
+          <span class="unit">台 &nbsp;× 1.0</span>
+        </div>
+        <div class="field-row">
+          <span class="field-label">續約 3 年</span>
+          <input class="fi fi-sm" type="number" min="0" value="${d.renew3||''}" placeholder="0"
+            oninput="setMaintField('renew3',+this.value)" ${editable?'':'disabled'}>
+          <span class="unit">台 &nbsp;× 1.2</span>
+        </div>
+        <div class="field-row">
+          <span class="field-label">續約 5 年以上</span>
+          <input class="fi fi-sm" type="number" min="0" value="${d.renew5||''}" placeholder="0"
+            oninput="setMaintField('renew5',+this.value)" ${editable?'':'disabled'}>
+          <span class="unit">台 &nbsp;× 1.5</span>
+        </div>
+        <div class="divider"></div>
+        <div style="position:relative;height:9px;background:var(--s3);border-radius:5px;margin-bottom:18px">
+          <div style="height:100%;width:${Math.min(100,r.weightedRate)}%;background:${r.reached?'var(--green)':'var(--orange)'};border-radius:5px;transition:.4s"></div>
+          <div style="position:absolute;left:90%;top:-4px;transform:translateX(-50%)">
+            <div style="width:2px;height:17px;background:${r.reached?'var(--green)':'#ccc'};margin:0 auto"></div>
+            <div style="font-size:9px;color:${r.reached?'var(--green)':'var(--t3)'};white-space:nowrap;transform:translateX(-40%);margin-top:1px">90%</div>
+          </div>
+        </div>
+        <div class="g3" style="margin-bottom:12px">
+          <div class="mini-stat"><div class="mini-stat-val">${r.neededRenew}</div><div class="mini-stat-lbl">到期需續約數</div></div>
+          <div class="mini-stat"><div class="mini-stat-val" style="color:var(--green)">${r.weightedRenewed}</div><div class="mini-stat-lbl">加權實際續約數</div></div>
+          <div class="mini-stat"><div class="mini-stat-val" style="color:${r.reached?'var(--green)':'var(--orange)'}">${r.weightedRate}%</div><div class="mini-stat-lbl">加權續約率</div></div>
+        </div>
+        <div style="background:var(--s2);border-radius:8px;padding:10px 12px;font-size:12px">
+          維運獎金：<strong style="color:${r.bonus>0?'var(--green)':'var(--t3)'}">${fmt(r.bonus)}</strong>
+          <span style="color:var(--t3);margin-left:8px">（加權續約率 ≥ 90% → 整包發放 ${fmt(CFG.pool.maint)}；未達標則 NT$0）</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="result-bar">
+      <div>
+        <div class="result-label">預估可領獎金</div>
+        <div class="result-amount">${fmt(r.bonus)}</div>
+        <div class="result-detail">${r.reached?'加權續約率達標，整包發放':'尚未達標'}</div>
+      </div>
+      <div style="text-align:right">
+        <div style="font-size:12px;opacity:.7">獎金池</div>
+        <div style="font-size:20px;font-weight:800;color:var(--gold)">${fmt(CFG.pool.maint)}</div>
+      </div>
+    </div>`;
+}
+function setMaintField(key,val){const d=getMaint();d[key]=val;saveDB();renderMaintPane();}
+function calcMaintBonus(){
+  const d=getMaint();
+  const total=+d.total||0;
+  const excl=Math.min(+d.exclude||0,total);
+  const validTotal=total-excl;
+  const neededRenew=Math.round(validTotal*(CFG.maintRenewThreshold/100));
+
+  const renew1=+d.renew1||0, renew3=+d.renew3||0, renew5=+d.renew5||0;
+  const mult=CFG.maintYearMultiplier;
+  const m1=mult.find(x=>x.yr===1)?.mult||1.0;
+  const m3=mult.find(x=>x.yr===3)?.mult||1.2;
+  const m5=mult.find(x=>x.yr===5)?.mult||1.5;
+  const weightedRenewed=Math.round((renew1*m1+renew3*m3+renew5*m5)*10)/10;
+
+  const weightedRate=neededRenew>0?Math.round(weightedRenewed/neededRenew*100):0;
+  const reached=weightedRate>=CFG.maintRenewThreshold;
+  const bonus=reached?CFG.pool.maint:0;
+
+  return {total,excl,validTotal,neededRenew,renew1,renew3,renew5,weightedRenewed,weightedRate,reached,bonus};
+}
+
+// ══════════════════════
+// 設計 Tab
+// ══════════════════════
+function buildDesignRateDisplay(){
+  const designCases=getCases().filter(c=>c.designId&&c.caseType!==undefined&&['designing','done'].includes(c.status)||c.status==='done'&&c.designId);
+  const allDesignCases=getCases().filter(c=>c.designId&&c.status!=='void');
+  const doneCases=allDesignCases.filter(c=>c.status==='done');
+  const rate=allDesignCases.length>0?Math.round(doneCases.length/allDesignCases.length*100):0;
+  const reached=rate>=60;
+  return `<div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+    <div style="flex:1;min-width:160px">
+      <div style="display:flex;justify-content:space-between;font-size:12px;margin-bottom:4px">
+        <span style="color:var(--t3)">已結案 ${doneCases.length} / 共 ${allDesignCases.length} 件</span>
+        <strong style="color:${reached?'var(--green)':'var(--orange)'}">${rate}%</strong>
+      </div>
+      <div class="score-track"><div class="score-fill" style="width:${rate}%;background:${reached?'var(--green)':'var(--orange)'}"></div></div>
+    </div>
+    <span class="pill ${reached?'pill-green':'pill-orange'}">${reached?'✅ 達標 (≥60%)':'未達60%'}</span>
+  </div>`;
+}
+
+function renderDesignPane(){
+  const who=CUR_USER;
+  const role=MEMBERS[who]?.role;
+  const adm=isAdmin(who);
+  const isPutting=who==='putting';
+  const isBevic=who==='bevic';
+  const isExec=['putting','rori','mina'].includes(who);
+  const isCollab=['john','lisa'].includes(who);
+  const g=getDesignGlobal();
+  const r=calcDesignBonus();
+  const pool=CFG.pool.design||0;
+
+  let html='';
+  if(pool===0){
+    html+=`<div class="notice">⚠️ 設計部獎金池尚未設定，請管理者至「管理 → 設定」填入</div>`;
+  }
+
+  // 布丁：網頁案分派
+  if(isPutting||adm){
+    const pendingWeb=getCases().filter(c=>c.status==='pending_design'&&c.caseType==='web');
+    html+=`<div class="card">
+      <div class="card-hdr"><div class="card-title">📥 待分派網頁案（${pendingWeb.length}）</div></div>
+      <div class="card-body">
+        ${pendingWeb.length===0?`<div style="font-size:12px;color:var(--t3);padding:8px 0">目前沒有待分派的網頁案</div>`
+        :pendingWeb.map(c=>`<div class="case-card">
+          <div class="case-card-hdr" style="margin-bottom:8px">
+            <div><div style="font-weight:700;font-size:13px">${c.client}</div>
+            <div class="case-meta">🌐 ${c.plan||'未選'}${c.seoAdd?' +SEO':''} &nbsp;·&nbsp; 報價 ${fmt(c.quote)} &nbsp;·&nbsp; PM: ${MEMBERS[c.pmId]?.name}</div></div>
+          </div>
+          <div class="field-row">
+            <span class="field-label">指派給</span>
+            <select class="fi fi-md" id="design-assign-${c.id}">
+              <option value="putting">布丁（自己）</option>
+              <option value="rori">RORI</option>
+              <option value="mina">MINA</option>
+            </select>
+            <button class="action-btn btn-primary" onclick="puttingAssign('${c.id}')">✅ 確認分派</button>
+          </div>
+        </div>`).join('')}
+      </div>
+    </div>`;
+  }
+
+  // Bevic：平面案 + 部門管理
+  if(isBevic||adm){
+    const flatCases=getCases().filter(c=>c.designId==='bevic');
+    html+=`<div class="card">
+      <div class="card-hdr"><div class="card-title">Bevic · 平面案件</div>
+        <span class="pill ${r.bevicBonus>0?'pill-green':'pill-orange'}">預估 ${fmt(r.bevicBonus)}</span>
+      </div>
+      <div class="card-body">
+        ${flatCases.length===0?`<div style="font-size:12px;color:var(--t3);padding:8px 0">目前沒有平面案件</div>`
+        :flatCases.map(c=>{
+          const acts=c.status==='designing'?`<button class="action-btn btn-green" onclick="designMarkDone('${c.id}')">🏁 標記完成（等PM確認）</button>`:'';
+          return caseCard(c,acts);
+        }).join('')}
+        <div class="divider"></div>
+        <div class="sec-label">部門整體結案率</div>
+        ${buildDesignRateDisplay()}
+        <div class="divider"></div>
+        <div class="sec-label">John / Lisa 個績評定</div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap">
+          ${['john','lisa'].map(id=>`<label style="display:flex;align-items:center;gap:7px;cursor:pointer;padding:8px 11px;background:var(--s2);border-radius:8px;font-size:12px">
+            <input type="checkbox" ${g[id+'Ok']?'checked':''}
+              onchange="setBevicField('${id}Ok',this.checked)">
+            ${MEMBERS[id].name} 個績達標
+          </label>`).join('')}
+        </div>
+      </div>
+    </div>`;
+  }
+
+  // 執案設計師個人案件
+  const execTargets=adm?['putting','rori','mina']:(isExec?[who]:[]);
+  if(execTargets.length){
+    html+=`<div class="card">
+      <div class="card-hdr"><div class="card-title">🎨 執案 · 結案金額</div></div>
+      <div class="card-body">
+        <div class="notice">結案定義：客戶驗收通過 + 尾款收回。結案金額自動從業務報價帶入。</div>
+        ${execTargets.map(id=>{
+          const myCases=getCasesByDesigner(id).filter(c=>['designing','done'].includes(c.status));
+          const doneAmt=myCases.filter(c=>c.status==='done').reduce((s,c)=>s+(+c.quote||0),0);
+          const bonus=r.execBonus[id]||0;
+          return `<div style="background:var(--s2);border-radius:10px;padding:13px;margin-bottom:10px">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+              <div style="font-weight:700">${MEMBERS[id].name}</div>
+              <div style="font-weight:700;color:var(--green);font-size:14px">${fmt(bonus)}</div>
+            </div>
+            ${myCases.length===0?`<div style="font-size:12px;color:var(--t3)">尚無分配案件</div>`
+            :myCases.map(c=>`<div style="display:flex;justify-content:space-between;align-items:center;padding:5px 8px;background:${c.status==='done'?'#dcfce7':'#fff'};border-radius:6px;margin-bottom:4px;font-size:12px">
+              <span><strong>${c.client}</strong> · ${fmt(c.quote)}</span>
+              ${caseStatusPill(c.status)}
+            </div>`).join('')}
+            <div style="font-size:11px;color:var(--t3);margin-top:6px">
+              結案金額 ${fmt(doneAmt)} · 佔總 ${r.totalAmt>0?Math.round(doneAmt/r.totalAmt*100):0}% → 預估 ${fmt(bonus)}
+            </div>
+          </div>`;
+        }).join('')}
+        ${adm?`<div class="divider"></div>
+        <div style="font-size:12px;color:var(--t3)">執案池 ${fmt(r.execPool)} · 三人依結案金額比例分配</div>`:''}
+      </div>
+    </div>`;
+  }
+
+  // John/Lisa
+  if(isCollab||adm){
+    html+=`<div class="card">
+      <div class="card-hdr"><div class="card-title">🛠 修改協作 · John / Lisa</div></div>
+      <div class="card-body">
+        <div class="notice">部門結案率 ≥ 60% 才發放獎金</div>
+        <div class="g2">
+          ${['john','lisa'].map(id=>{
+            const team=id==='john'?r.johnTeam:r.lisaTeam;
+            const indv=id==='john'?r.johnIndv:r.lisaIndv;
+            return `<div class="mini-stat">
+              <div class="mini-stat-val" style="color:${(team+indv)>0?'var(--green)':'var(--t3)'}">${fmt(team+indv)}</div>
+              <div class="mini-stat-lbl">${MEMBERS[id].name}<br><span style="font-size:10px">團績 ${fmt(team)} + 個績 ${fmt(indv)}</span></div>
+            </div>`;
+          }).join('')}
+        </div>
+        <div style="font-size:11px;color:var(--t3);margin-top:8px">${r.deptReached?'✅ 部門結案率達標':'⏳ 部門結案率未達60%，待結案中'}</div>
+      </div>
+    </div>`;
+  }
+
+  document.getElementById('design-content').innerHTML=html||'<div class="card"><div class="card-body" style="text-align:center;padding:24px;color:var(--t3)">請選擇對應角色查看</div></div>';
+}
+
+function puttingAssign(cid){
+  const designId=document.getElementById('design-assign-'+cid)?.value||'putting';
+  const c=getCases().find(x=>x.id===cid);
+  if(!c)return;
+  c.designId=designId;
+  c.status='designing';
+  saveDB();
+  toast(`${c.client} 已分派給 ${MEMBERS[designId].name}`,'ok');
+  renderDesignPane();
+}
+function setBevicField(key,val){
+  const g=getDesignGlobal();g[key]=val;saveDB();renderDesignPane();
+}
+function designMarkDone(cid){
+  // 設計師標記設計完成，等 PM 最終確認
+  const c=getCases().find(x=>x.id===cid);
+  if(!c)return;
+  toast(`${c.client} 已標記設計完成，等待 PM 確認結案`,'info');
+  // 狀態仍是 designing，PM 那邊會看到並按「確認結案」
+}
+
+function calcDesignBonus(){
+  const pool=CFG.pool.design||0;
+  const d=CFG.design;
+  const execPool=Math.round(pool*d.execRatio);
+  const collabPool=Math.round(pool*d.collabRatio);
+  const leadPool=pool-execPool-collabPool;
+  const execIds=['putting','rori','mina'];
+  const execAmts={},execBonus={};
+  let totalAmt=0;
+  execIds.forEach(id=>{
+    const amt=getCasesByDesigner(id).filter(c=>c.status==='done'&&c.status!=='void').reduce((s,c)=>s+(+c.quote||0),0);
+    execAmts[id]=amt;totalAmt+=amt;
+  });
+  execIds.forEach(id=>{execBonus[id]=totalAmt>0?Math.round(execAmts[id]/totalAmt*execPool):0;});
+  const allDesign=getCases().filter(c=>c.designId);
+  const doneDesign=allDesign.filter(c=>c.status==='done');
+  const deptRate=allDesign.length>0?doneDesign.length/allDesign.length:0;
+  const deptReached=deptRate>=0.6;
+  const g=getDesignGlobal();
+  const johnTeam=deptReached?Math.round(collabPool/2):0;
+  const lisaTeam=deptReached?Math.round(collabPool/2):0;
+  const johnIndv=deptReached&&g.johnOk?Math.round(pool*.05):0;
+  const lisaIndv=deptReached&&g.lisaOk?Math.round(pool*.05):0;
+  const bevicBonus=deptReached?leadPool:0;
+  const extra=+g.extra||0;
+  return {execPool,collabPool,leadPool,execAmts,totalAmt,execBonus,
+    deptRate,deptReached,johnTeam,lisaTeam,johnIndv,lisaIndv,bevicBonus,extra};
+}
+
+// ══════════════════════
+// 管理者 Tab
+// ══════════════════════
+let _adminSubTab='summary';
+function renderAdminPane(){
+  document.getElementById('admin-content').innerHTML=`
+    <div class="sub-nav">
+      <button class="sub-tab ${_adminSubTab==='summary'?'on':''}" onclick="_adminSubTab='summary';renderAdminPane()">📊 獎金總覽</button>
+      <button class="sub-tab ${_adminSubTab==='pool'?'on':''}" onclick="_adminSubTab='pool';renderAdminPane()">⚙️ 設定</button>
+    </div>
+    <div id="admin-sub"></div>`;
+  if(_adminSubTab==='summary') renderAdminSummary();
+  else renderAdminPool();
+}
+
+function renderAdminSummary(){
+  const el=document.getElementById('admin-sub');
+  if(!el)return;
+  const annie=calcSalesBonus('annie'),sandra=calcSalesBonus('sandra');
+  const elenaT=(annie.reached?1:0)+(sandra.reached?1:0);
+  const mainUsed=(annie.totalBonus||0)+(sandra.totalBonus||0);
+  const elenaPool=Math.max(0, CFG.pool.sales-mainUsed);
+  const perTrigger=CFG.salesMainCount>0?Math.round(elenaPool/CFG.salesMainCount):0;
+  const elenaB=Math.round(elenaT*perTrigger/(CFG.salesAssistCount||1));
+  const daniel=calcPMShare('daniel'),davis=calcPMShare('davis'),shanna=calcPMShare('shanna');
+  const maint=calcMaintBonus();
+  const collab=calcPMCollabBonus();
+  const dr=calcDesignBonus();
+
+  const collabEach=collab.allOk?collab.perPerson:0;
+  const total=annie.totalBonus+sandra.totalBonus+elenaB
+    +daniel.bonus+davis.bonus+shanna.bonus+collabEach*3+maint.bonus
+    +Object.values(dr.execBonus).reduce((s,v)=>s+v,0)
+    +dr.johnTeam+dr.johnIndv+dr.lisaTeam+dr.lisaIndv+dr.bevicBonus;
+
+  el.innerHTML=`
+    <!-- 總覽表 -->
+    <div class="card" style="margin-bottom:12px">
+      <div class="card-hdr"><div class="card-title">📊 ${seasonLabel()} 獎金總覽</div></div>
+      <div class="card-body" style="padding:0">
+        <table class="task-table">
+          <thead><tr><th>人員</th><th>部門</th><th>季進案業績</th><th>達標門檻</th><th>備註</th><th>預估合計</th></tr></thead>
+          <tbody>
+            <tr><td><strong>Annie</strong></td><td style="color:var(--t3)">業務</td><td>${fmt(annie.salesAmt)}</td><td>${annie.reached?annie.reached.level:'未達標'}</td><td>${annie.isChallenge?'🔥 挑戰賽加碼':'—'}</td><td><strong style="color:var(--green)">${fmt(annie.totalBonus)}</strong></td></tr>
+            <tr><td><strong>Sandra</strong></td><td style="color:var(--t3)">業務</td><td>${fmt(sandra.salesAmt)}</td><td>${sandra.reached?sandra.reached.level:'未達標'}</td><td>${sandra.isChallenge?'🔥 挑戰賽加碼':'—'}</td><td><strong style="color:var(--green)">${fmt(sandra.totalBonus)}</strong></td></tr>
+            <tr><td><strong>Elena</strong></td><td style="color:var(--t3)">業務助理</td><td colspan="3" style="color:var(--t3);font-size:12px">${elenaT}/${CFG.salesMainCount}位達標觸發</td><td><strong style="color:var(--green)">${fmt(elenaB)}</strong></td></tr>
+            <tr style="background:var(--s2)"><td colspan="6" style="padding:5px 9px;font-size:10px;color:var(--t3)">── 專案部 · 分潤池 ${fmt(CFG.pool.pm)}，總結案金額 ${fmt(daniel.totalAmt)} ・ 協作團績 ${collab.allOk?'✅ 已達標':'未達標'} ──</td></tr>
+            ${['daniel','davis','shanna'].map(id=>{
+              const d=id==='daniel'?daniel:id==='davis'?davis:shanna;
+              const pct=d.totalAmt>0?Math.round(d.doneAmt/d.totalAmt*100):0;
+              return `<tr><td><strong>${MEMBERS[id].name}</strong></td><td style="color:var(--t3)">專案</td>
+                <td>${fmt(d.doneAmt)}</td><td>${pct}%</td>
+                <td>${collabEach?'協作 '+fmt(collabEach):'—'}</td>
+                <td><strong style="color:var(--green)">${fmt(d.bonus+collabEach)}</strong></td></tr>`;
+            }).join('')}
+            <tr><td><strong>Jessie</strong></td><td style="color:var(--t3)">維運</td><td>${maint.weightedRate}% 加權續約率</td><td>${maint.reached?'✅ 達標':'未達標'}</td><td>—</td><td><strong style="color:var(--green)">${fmt(maint.bonus)}</strong></td></tr>
+            <tr style="background:var(--s2)"><td colspan="6" style="padding:5px 9px;font-size:10px;color:var(--t3)">── 設計部 · 執案池 ${fmt(dr.execPool)}，總結案金額 ${fmt(dr.totalAmt)} ──</td></tr>
+            ${['putting','rori','mina'].map(id=>`<tr><td><strong>${MEMBERS[id].name}</strong></td><td style="color:var(--t3)">執案</td>
+              <td>${fmt(dr.execAmts[id]||0)}</td><td>${dr.totalAmt>0?Math.round((dr.execAmts[id]||0)/dr.totalAmt*100):0}%</td><td>—</td>
+              <td><strong style="color:var(--green)">${fmt(dr.execBonus[id]||0)}</strong></td></tr>`).join('')}
+            <tr><td><strong>John</strong></td><td style="color:var(--t3)">協作</td><td>團 ${fmt(dr.johnTeam)}</td><td>個 ${fmt(dr.johnIndv)}</td><td>—</td><td><strong style="color:var(--green)">${fmt(dr.johnTeam+dr.johnIndv)}</strong></td></tr>
+            <tr><td><strong>Lisa</strong></td><td style="color:var(--t3)">協作</td><td>團 ${fmt(dr.lisaTeam)}</td><td>個 ${fmt(dr.lisaIndv)}</td><td>—</td><td><strong style="color:var(--green)">${fmt(dr.lisaTeam+dr.lisaIndv)}</strong></td></tr>
+            <tr><td><strong>Bevic</strong></td><td style="color:var(--t3)">部長</td><td colspan="3" style="color:var(--t3);font-size:12px">結案率 ${Math.round(dr.deptRate*100)}% ${dr.deptReached?'✅ 達標':'未達60%'}</td><td><strong style="color:var(--green)">${fmt(dr.bevicBonus)}</strong></td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+    <div class="result-bar">
+      <div><div class="result-label">本季預估總發放</div><div class="result-amount">${fmt(total)}</div></div>
+      <div style="text-align:right;font-size:12px;opacity:.7">獎金池 ${fmt(CFG.pool.sales+CFG.pool.pm+CFG.pool.maint+CFG.pool.design)}</div>
+    </div>`;
+}
+
+function renderAdminPool(){
+  const el=document.getElementById('admin-sub');
+  if(!el)return;
+  el.innerHTML=`
+    <div class="card">
+      <div class="card-hdr"><div class="card-title">⚙️ 獎金池設定</div></div>
+      <div class="card-body">
+        <div class="notice">修改後點儲存即時更新</div>
+        <div class="sec-label">各部門獎金池</div>
+        <div class="g2">
+          ${[['業務部總池','pool.sales'],['專案部分潤池（不含維運）','pool.pm'],['維運獎金池','pool.maint'],['設計部總池','pool.design']].map(([lbl,key])=>`
+          <div class="field-row">
+            <span class="field-label" style="min-width:130px">${lbl}</span>
+            <input class="fi fi-sm" type="number" value="${getNestedCFG(key)||0}"
+              oninput="setNestedCFG('${key}',+this.value)">
+            <span class="unit">元</span>
+          </div>`).join('')}
+        </div>
+
+        <div class="divider"></div>
+        <div class="sec-label">維運門檻設定</div>
+        <div class="field-row">
+          <span class="field-label" style="min-width:130px">加權續約率門檻</span>
+          <input class="fi fi-sm" type="number" min="0" max="100"
+            value="${CFG.maintRenewThreshold||90}"
+            oninput="CFG.maintRenewThreshold=+this.value">
+          <span class="unit">%（達標整包發放，未達標 NT$0）</span>
+        </div>
+        <button onclick="saveCFG();saveDB();toast('設定已儲存','ok')" style="margin-top:14px;padding:9px 24px;background:var(--navy);color:#fff;border:none;border-radius:8px;font-size:13px;cursor:pointer;font-family:inherit;font-weight:600">💾 儲存設定</button>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-hdr"><div class="card-title">🔑 帳號密碼管理</div></div>
+      <div class="card-body">
+        <div class="notice">僅 Murphy、Davis 可重置成員密碼；預設密碼為 123456</div>
+        <table class="task-table">
+          <thead><tr><th>成員</th><th>部門</th><th></th></tr></thead>
+          <tbody>
+            ${Object.entries(MEMBERS).map(([id,m])=>`
+              <tr>
+                <td><strong>${m.name}</strong>${isAdmin(id)?' <span class="pill pill-purple">管理者</span>':''}</td>
+                <td style="color:var(--t3)">${deptLabel(m.dept)}</td>
+                <td><button class="action-btn" style="background:var(--s3);color:var(--t2);font-size:11px;padding:5px 10px" onclick="openResetPwModal('${id}')">重置密碼</button></td>
+              </tr>`).join('')}
+          </tbody>
+        </table>
+      </div>
+    </div>`;
+}
+function deptLabel(d){
+  return {mgmt:'管理',sales:'業務',pm:'專案',maint:'維運',design:'設計'}[d]||d;
+}
+
+function getNestedCFG(key){const parts=key.split('.');let v=CFG;for(const p of parts)v=v?.[p];return v??'';}
+function setNestedCFG(key,val){const parts=key.split('.');let v=CFG;for(let i=0;i<parts.length-1;i++)v=v[parts[i]];v[parts[parts.length-1]]=val;}
+
+// ── Init ──
+async function initApp(){
+  await fbReady();
+  await Promise.all([loadDB(),loadCFG(),loadPasswords()]);
+  buildLoginList();
+  watchDBChanges();
+}
+initApp();
+</script>
+</body>
+</html>
