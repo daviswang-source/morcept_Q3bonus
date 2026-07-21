@@ -5,6 +5,25 @@
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>默聲創意 · 季度獎金計算</title>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<script type="module">
+  import { initializeApp } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-app.js";
+  import { getFirestore, doc, getDoc, setDoc, onSnapshot }
+    from "https://www.gstatic.com/firebasejs/10.13.0/firebase-firestore.js";
+
+  const firebaseConfig = {
+    apiKey: "AIzaSyBJdC0u4t31-6bsLBNxwpUQZpeVq0Leou0",
+    authDomain: "morcept-bonus.firebaseapp.com",
+    projectId: "morcept-bonus",
+    storageBucket: "morcept-bonus.firebasestorage.app",
+    messagingSenderId: "143426898008",
+    appId: "1:143426898008:web:0b57b95917dbeccd01e22d"
+  };
+
+  const fbApp = initializeApp(firebaseConfig);
+  const fbDB  = getFirestore(fbApp);
+  window.__fb = { doc, getDoc, setDoc, onSnapshot, db: fbDB };
+  window.dispatchEvent(new Event('fb-ready'));
+</script>
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
 :root{
@@ -18,6 +37,20 @@ body{background:var(--bg);color:var(--t1);font-family:-apple-system,BlinkMacSyst
 .login-wrap{position:fixed;inset:0;background:var(--navy);display:flex;align-items:center;justify-content:center;z-index:999;overflow-y:auto}
 .login-box{background:#fff;border-radius:16px;padding:28px 24px;width:360px;margin:20px auto}
 .login-logo{font-size:20px;font-weight:800;color:var(--navy);margin-bottom:2px}
+.login-pw-input{width:100%;padding:10px 12px;border:1.5px solid var(--border);border-radius:8px;font-size:14px;font-family:inherit;background:var(--s2);margin-bottom:8px}
+.login-pw-input:focus{outline:none;border-color:var(--blue);background:#fff}
+.login-pw-user{display:flex;align-items:center;gap:8px;background:var(--s2);border-radius:8px;padding:8px 10px;margin-bottom:10px}
+.login-pw-back{font-size:11px;color:var(--t3);cursor:pointer;text-align:center;margin-top:8px}
+.login-pw-back:hover{color:var(--navy)}
+.login-err{font-size:12px;color:var(--red);min-height:16px;margin-bottom:6px}
+.account-menu{position:relative;display:inline-block}
+.account-menu-dropdown{position:absolute;top:calc(100%+6px);right:0;background:#fff;border:1px solid var(--border);border-radius:10px;box-shadow:0 8px 24px rgba(0,0,0,.12);min-width:160px;z-index:200;overflow:hidden}
+.account-menu-item{padding:10px 14px;font-size:12px;color:var(--t2);cursor:pointer;display:flex;align-items:center;gap:7px}
+.account-menu-item:hover{background:var(--s2)}
+.account-menu-item.danger{color:var(--red)}
+.modal-mask{position:fixed;inset:0;background:rgba(0,0,0,.4);z-index:998;display:flex;align-items:center;justify-content:center}
+.modal-box{background:#fff;border-radius:14px;padding:22px 20px;width:320px}
+.modal-title{font-size:15px;font-weight:700;margin-bottom:14px}
 .login-sub{font-size:12px;color:var(--t3);margin-bottom:16px}
 .login-group{margin-bottom:10px}
 .login-group-label{font-size:11px;color:var(--t3);margin-bottom:5px;font-weight:600}
@@ -125,11 +158,18 @@ select.fi{cursor:pointer}
 <div class="login-wrap" id="login-page">
   <div class="login-box">
     <div class="login-logo">默聲創意</div>
-    <div class="login-sub">季度獎金計算 · 請選擇帳號</div>
+    <div class="login-sub" id="login-sub-text">季度獎金計算 · 請選擇帳號</div>
     <div id="login-groups"></div>
-    <div style="margin-top:12px;text-align:center;font-size:12px;color:var(--t3);cursor:pointer" onclick="loginAs('admin')">其他管理者登入</div>
+    <div id="login-pw-step" class="hidden">
+      <div class="login-pw-user" id="login-pw-user"></div>
+      <input class="login-pw-input" type="password" id="login-pw-input" placeholder="請輸入密碼" maxlength="40">
+      <div class="login-err" id="login-err"></div>
+      <button class="action-btn btn-primary" style="width:100%;padding:10px" onclick="submitLogin()">登入</button>
+      <div class="login-pw-back" onclick="backToLoginList()">← 重新選擇帳號</div>
+    </div>
   </div>
 </div>
+<div id="modal-root"></div>
 
 <div class="hdr">
   <div class="hdr-title">💰 季度獎金計算</div>
@@ -139,7 +179,13 @@ select.fi{cursor:pointer}
       <option value="2026-Q4">2026 Q4（10-12月）</option>
       <option value="2027-Q1">2027 Q1（1-3月）</option>
     </select>
-    <div class="who-badge" id="who-badge" onclick="logout()">登出</div>
+    <div class="account-menu" id="account-menu">
+      <div class="who-badge" id="who-badge" onclick="toggleAccountMenu()">登入</div>
+      <div class="account-menu-dropdown hidden" id="account-menu-dropdown">
+        <div class="account-menu-item" onclick="openChangePwModal()">🔑 修改密碼</div>
+        <div class="account-menu-item danger" onclick="logout()">🚪 登出</div>
+      </div>
+    </div>
   </div>
 </div>
 
@@ -207,13 +253,75 @@ let CFG={
 };
 
 let CUR_USER=null, CUR_SEASON='2026-Q3';
-let DB={};
+let DB={}, PASSWORDS={};
+let _pendingLoginId=null;
 
-// ══ 資料存取 ══
-function loadDB(){try{const r=localStorage.getItem(STORAGE_KEY);if(r){DB=JSON.parse(r);migrateLegacyData();}}catch(e){DB={};}}
-function loadCFG(){try{const r=localStorage.getItem(CFG_KEY);if(r)Object.assign(CFG,JSON.parse(r));}catch(e){}}
-function saveDB(){try{localStorage.setItem(STORAGE_KEY,JSON.stringify(DB));toast('已儲存','ok');}catch(e){toast('儲存失敗','err');}}
-function saveCFG(){try{localStorage.setItem(CFG_KEY,JSON.stringify(CFG));}catch(e){}}
+// ══ Firebase 資料層 ══
+function fbReady(){
+  return new Promise(res=>{
+    if(window.__fb){res();return;}
+    window.addEventListener('fb-ready',()=>res(),{once:true});
+  });
+}
+async function loadDB(){
+  await fbReady();
+  try{
+    const snap=await window.__fb.getDoc(window.__fb.doc(window.__fb.db,'app','bonusDB'));
+    if(snap.exists())DB=JSON.parse(snap.data().data||'{}');
+    else DB={};
+    migrateLegacyData();
+  }catch(e){console.error('loadDB',e);DB={};}
+}
+async function loadCFG(){
+  await fbReady();
+  try{
+    const snap=await window.__fb.getDoc(window.__fb.doc(window.__fb.db,'app','bonusCFG'));
+    if(snap.exists())Object.assign(CFG,JSON.parse(snap.data().data||'{}'));
+  }catch(e){console.error('loadCFG',e);}
+}
+async function loadPasswords(){
+  await fbReady();
+  try{
+    const snap=await window.__fb.getDoc(window.__fb.doc(window.__fb.db,'app','passwords'));
+    if(snap.exists()){PASSWORDS=snap.data()||{};}
+    else{
+      PASSWORDS={};
+      Object.keys(MEMBERS).forEach(id=>PASSWORDS[id]='123456');
+      await window.__fb.setDoc(window.__fb.doc(window.__fb.db,'app','passwords'),PASSWORDS);
+    }
+  }catch(e){console.error('loadPasswords',e);}
+}
+let _dbSaveTimer=null;
+function saveDB(){
+  clearTimeout(_dbSaveTimer);
+  _dbSaveTimer=setTimeout(async()=>{
+    try{
+      await window.__fb.setDoc(window.__fb.doc(window.__fb.db,'app','bonusDB'),
+        {data:JSON.stringify(DB),updatedAt:Date.now(),updatedBy:CUR_USER||''});
+      toast('已儲存','ok');
+    }catch(e){console.error(e);toast('儲存失敗','err');}
+  },350);
+}
+async function saveCFG(){
+  try{
+    await window.__fb.setDoc(window.__fb.doc(window.__fb.db,'app','bonusCFG'),{data:JSON.stringify(CFG)});
+  }catch(e){toast('設定儲存失敗','err');}
+}
+async function savePasswords(){
+  try{
+    await window.__fb.setDoc(window.__fb.doc(window.__fb.db,'app','passwords'),PASSWORDS);
+  }catch(e){toast('密碼儲存失敗','err');}
+}
+function watchDBChanges(){
+  window.__fb.onSnapshot(window.__fb.doc(window.__fb.db,'app','bonusDB'),snap=>{
+    if(!snap.exists())return;
+    const remote=snap.data();
+    if(remote.updatedBy===CUR_USER)return;
+    try{DB=JSON.parse(remote.data||'{}');if(CUR_USER)renderCurrentTab();}catch(e){}
+  });
+}
+
+// getSeason / getCases
 
 function getSeason(){if(!DB[CUR_SEASON])DB[CUR_SEASON]={cases:[],sales:{},pm:{},maint:{},design:{}};return DB[CUR_SEASON];}
 function getCases(){return getSeason().cases||(getSeason().cases=[]);}
@@ -273,23 +381,45 @@ function buildLoginList(){
     <div class="login-group">
       <div class="login-group-label">${g.label}</div>
       <div class="login-btns ${g.cols===3?'col3':''}">
-        ${g.ids.map(id=>`<button class="member-btn" onclick="loginAs('${id}')">
+        ${g.ids.map(id=>`<button class="member-btn" onclick="selectLoginUser('${id}')">
           <div class="mb-av">${MEMBERS[id].name[0]}</div>
           <span>${MEMBERS[id].name}</span>
         </button>`).join('')}
       </div>
     </div>`).join('');
 }
-
+function selectLoginUser(id){
+  _pendingLoginId=id;
+  document.getElementById('login-groups').classList.add('hidden');
+  document.getElementById('login-sub-text').textContent='請輸入密碼';
+  document.getElementById('login-pw-step').classList.remove('hidden');
+  document.getElementById('login-pw-user').innerHTML=`<div class="mb-av">${MEMBERS[id].name[0]}</div><strong>${MEMBERS[id].name}</strong>`;
+  document.getElementById('login-err').textContent='';
+  const inp=document.getElementById('login-pw-input');
+  inp.value='';
+  setTimeout(()=>inp.focus(),50);
+  inp.onkeydown=e=>{if(e.key==='Enter')submitLogin();};
+}
+function backToLoginList(){
+  _pendingLoginId=null;
+  document.getElementById('login-groups').classList.remove('hidden');
+  document.getElementById('login-pw-step').classList.add('hidden');
+  document.getElementById('login-sub-text').textContent='季度獎金計算 · 請選擇帳號';
+}
+function submitLogin(){
+  const id=_pendingLoginId; if(!id)return;
+  const input=document.getElementById('login-pw-input').value;
+  const real=PASSWORDS[id]||'123456';
+  if(input!==real){document.getElementById('login-err').textContent='密碼錯誤，請再試一次';return;}
+  loginAs(id);
+}
 function loginAs(id){
-  CUR_USER=id;
+  CUR_USER=id; _pendingLoginId=null;
   document.getElementById('login-page').style.display='none';
-  document.getElementById('who-badge').textContent=MEMBERS[id]?.name||'管理者';
+  document.getElementById('who-badge').textContent=MEMBERS[id]?.name||'';
   buildNav(id);
   const defaultTab=getDefaultTab(id);
-  curTab=defaultTab;
-  showPane(defaultTab);
-  renderCurrentTab();
+  curTab=defaultTab; showPane(defaultTab); renderCurrentTab();
 }
 function getDefaultTab(id){
   const m=MEMBERS[id];
@@ -326,7 +456,75 @@ function getVisibleTabs(id){
   if(dept==='design') return [all[3]];
   return [];
 }
-function logout(){CUR_USER=null;document.getElementById('login-page').style.display='flex';}
+function logout(){
+  CUR_USER=null;
+  document.getElementById('account-menu-dropdown').classList.add('hidden');
+  document.getElementById('login-page').style.display='flex';
+  backToLoginList();
+}
+function toggleAccountMenu(){
+  if(!CUR_USER)return;
+  document.getElementById('account-menu-dropdown').classList.toggle('hidden');
+}
+document.addEventListener('click',e=>{
+  const menu=document.getElementById('account-menu');
+  const dd=document.getElementById('account-menu-dropdown');
+  if(menu&&dd&&!menu.contains(e.target))dd.classList.add('hidden');
+});
+function openChangePwModal(){
+  document.getElementById('account-menu-dropdown').classList.add('hidden');
+  document.getElementById('modal-root').innerHTML=`
+    <div class="modal-mask" onclick="if(event.target===this)closeModal()">
+      <div class="modal-box">
+        <div class="modal-title">🔑 修改密碼</div>
+        <div style="font-size:12px;color:var(--t3);margin-bottom:10px">帳號：${MEMBERS[CUR_USER]?.name}</div>
+        <input class="login-pw-input" type="password" id="pw-old" placeholder="目前密碼">
+        <input class="login-pw-input" type="password" id="pw-new1" placeholder="新密碼（至少4碼）">
+        <input class="login-pw-input" type="password" id="pw-new2" placeholder="再次輸入新密碼">
+        <div class="login-err" id="pw-modal-err"></div>
+        <div style="display:flex;gap:8px;margin-top:6px">
+          <button class="action-btn" style="flex:1;background:var(--s3);color:var(--t2)" onclick="closeModal()">取消</button>
+          <button class="action-btn btn-primary" style="flex:1" onclick="submitChangePw()">確認修改</button>
+        </div>
+      </div>
+    </div>`;
+}
+function submitChangePw(){
+  const old=document.getElementById('pw-old').value;
+  const n1=document.getElementById('pw-new1').value;
+  const n2=document.getElementById('pw-new2').value;
+  const err=document.getElementById('pw-modal-err');
+  if(old!==(PASSWORDS[CUR_USER]||'123456')){err.textContent='目前密碼不正確';return;}
+  if(n1.length<4){err.textContent='新密碼至少需要 4 碼';return;}
+  if(n1!==n2){err.textContent='兩次輸入的新密碼不一致';return;}
+  PASSWORDS[CUR_USER]=n1; savePasswords(); closeModal(); toast('密碼已更新','ok');
+}
+function openResetPwModal(targetId){
+  document.getElementById('modal-root').innerHTML=`
+    <div class="modal-mask" onclick="if(event.target===this)closeModal()">
+      <div class="modal-box">
+        <div class="modal-title">🔑 重置密碼</div>
+        <div style="font-size:12px;color:var(--t3);margin-bottom:10px">為 <strong>${MEMBERS[targetId]?.name}</strong> 設定新密碼</div>
+        <input class="login-pw-input" type="password" id="rpw-new1" placeholder="新密碼（至少4碼）">
+        <input class="login-pw-input" type="password" id="rpw-new2" placeholder="再次輸入新密碼">
+        <div class="login-err" id="rpw-modal-err"></div>
+        <div style="display:flex;gap:8px;margin-top:6px">
+          <button class="action-btn" style="flex:1;background:var(--s3);color:var(--t2)" onclick="closeModal()">取消</button>
+          <button class="action-btn btn-primary" style="flex:1" onclick="submitResetPw('${targetId}')">確認設定</button>
+        </div>
+      </div>
+    </div>`;
+}
+function submitResetPw(targetId){
+  const n1=document.getElementById('rpw-new1').value;
+  const n2=document.getElementById('rpw-new2').value;
+  const err=document.getElementById('rpw-modal-err');
+  if(n1.length<4){err.textContent='新密碼至少需要 4 碼';return;}
+  if(n1!==n2){err.textContent='兩次輸入的新密碼不一致';return;}
+  PASSWORDS[targetId]=n1; savePasswords(); closeModal();
+  toast(`${MEMBERS[targetId]?.name} 的密碼已重置`,'ok');
+}
+function closeModal(){document.getElementById('modal-root').innerHTML='';}
 function onSeasonChange(){CUR_SEASON=document.getElementById('season-sel').value;renderCurrentTab();}
 
 let curTab='sales';
@@ -1276,15 +1474,15 @@ function calcMaintScore(){
 // 設計 Tab
 // ══════════════════════
 function buildDesignRateDisplay(){
-  const designCases=getCases().filter(c=>c.designId&&c.caseType!==undefined&&['designing','done'].includes(c.status)||c.status==='done'&&c.designId);
-  const allDesignCases=getCases().filter(c=>c.designId&&c.status!=='void');
+  // 只計算網頁案（caseType==='web'），平面案不計入
+  const allDesignCases=getCases().filter(c=>c.designId&&c.caseType==='web'&&c.status!=='void');
   const doneCases=allDesignCases.filter(c=>c.status==='done');
   const rate=allDesignCases.length>0?Math.round(doneCases.length/allDesignCases.length*100):0;
   const reached=rate>=60;
   return `<div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
     <div style="flex:1;min-width:160px">
       <div style="display:flex;justify-content:space-between;font-size:12px;margin-bottom:4px">
-        <span style="color:var(--t3)">已結案 ${doneCases.length} / 共 ${allDesignCases.length} 件</span>
+        <span style="color:var(--t3)">已結案 ${doneCases.length} / 共 ${allDesignCases.length} 件（網頁案）</span>
         <strong style="color:${reached?'var(--green)':'var(--orange)'}">${rate}%</strong>
       </div>
       <div class="score-track"><div class="score-fill" style="width:${rate}%;background:${reached?'var(--green)':'var(--orange)'}"></div></div>
@@ -1310,8 +1508,8 @@ function renderDesignPane(){
     html+=`<div class="notice">⚠️ 設計部獎金池尚未設定，請管理者至「管理 → 設定」填入</div>`;
   }
 
-  // ── 部門結案進度（所有設計人員都看得到）──
-  const allDesign=getCases().filter(c=>c.designId&&c.status!=='void');
+  // ── 部門結案進度（只計算網頁案）──
+  const allDesign=getCases().filter(c=>c.designId&&c.caseType==='web'&&c.status!=='void');
   const doneDesign=allDesign.filter(c=>c.status==='done');
   const deptTotal=allDesign.length;
   const deptDone=doneDesign.length;
@@ -1336,7 +1534,7 @@ function renderDesignPane(){
 
   html+=`<div class="card">
     <div class="card-hdr">
-      <div class="card-title">📊 設計部 · 本季結案進度</div>
+      <div class="card-title">📊 設計部 · 本季網頁案結案進度</div>
       <span class="pill ${deptReached?'pill-green':'pill-orange'}">${deptReached?'✅ 已達標':'未達 60%'}</span>
     </div>
     <div class="card-body">
@@ -1353,7 +1551,7 @@ function renderDesignPane(){
       <div class="g3" style="margin-bottom:12px">
         <div class="mini-stat">
           <div class="mini-stat-val">${deptTotal}</div>
-          <div class="mini-stat-lbl">已指派案件</div>
+          <div class="mini-stat-lbl">網頁案（已指派）</div>
         </div>
         <div class="mini-stat">
           <div class="mini-stat-val" style="color:var(--green)">${deptDone}</div>
@@ -1361,7 +1559,7 @@ function renderDesignPane(){
         </div>
         <div class="mini-stat">
           <div class="mini-stat-val" style="color:${barColor}">${deptRate}%</div>
-          <div class="mini-stat-lbl">結案率</div>
+          <div class="mini-stat-lbl">網頁案結案率</div>
         </div>
       </div>
       <!-- 團隊績效說明 -->
@@ -1393,9 +1591,6 @@ function renderDesignPane(){
           const acts=c.status==='designing'?`<button class="action-btn btn-green" onclick="designMarkDone('${c.id}')">🏁 標記完成（等PM確認）</button>`:'';
           return caseCard(c,acts);
         }).join('')}
-        <div class="divider"></div>
-        <div class="sec-label">部門整體結案率</div>
-        ${buildDesignRateDisplay()}
       </div>
     </div>`;
   }
@@ -1533,7 +1728,8 @@ function calcDesignBonus(){
     execAmts[id]=amt;totalAmt+=amt;
   });
   execIds.forEach(id=>{execBonus[id]=totalAmt>0?Math.round(execAmts[id]/totalAmt*execPool):0;});
-  const allDesign=getCases().filter(c=>c.designId);
+  // 部門結案率：只計算網頁案（caseType==='web'），平面案不計入
+  const allDesign=getCases().filter(c=>c.designId&&c.caseType==='web'&&c.status!=='void');
   const doneDesign=allDesign.filter(c=>c.status==='done');
   const deptRate=allDesign.length>0?doneDesign.length/allDesign.length:0;
   const deptReached=deptRate>=0.6;
@@ -1695,6 +1891,24 @@ function renderAdminPool(){
         </div>
         <button onclick="saveCFG();saveDB();toast('設定已儲存','ok')" style="margin-top:14px;padding:9px 24px;background:var(--navy);color:#fff;border:none;border-radius:8px;font-size:13px;cursor:pointer;font-family:inherit;font-weight:600">💾 儲存設定</button>
       </div>
+    </div>
+
+    <div class="card">
+      <div class="card-hdr"><div class="card-title">🔑 帳號密碼管理</div></div>
+      <div class="card-body">
+        <div class="notice">預設密碼為 123456，請提醒成員登入後修改</div>
+        <table class="task-table">
+          <thead><tr><th>成員</th><th>部門</th><th></th></tr></thead>
+          <tbody>
+            ${Object.entries(MEMBERS).map(([id,m])=>`
+              <tr>
+                <td><strong>${m.name}</strong>${isAdmin(id)?' <span class="pill pill-purple">管理者</span>':''}</td>
+                <td style="color:var(--t3)">${{mgmt:'管理',sales:'業務',pm:'專案',maint:'維運',design:'設計'}[m.dept]||m.dept}</td>
+                <td><button class="action-btn" style="background:var(--s3);color:var(--t2);font-size:11px;padding:5px 10px" onclick="openResetPwModal('${id}')">重置密碼</button></td>
+              </tr>`).join('')}
+          </tbody>
+        </table>
+      </div>
     </div>`;
 }
 
@@ -1702,7 +1916,13 @@ function getNestedCFG(key){const parts=key.split('.');let v=CFG;for(const p of p
 function setNestedCFG(key,val){const parts=key.split('.');let v=CFG;for(let i=0;i<parts.length-1;i++)v=v[parts[i]];v[parts[parts.length-1]]=val;}
 
 // ── Init ──
-loadDB();loadCFG();buildLoginList();
+async function initApp(){
+  await fbReady();
+  await Promise.all([loadDB(),loadCFG(),loadPasswords()]);
+  buildLoginList();
+  watchDBChanges();
+}
+initApp();
 </script>
 </body>
 </html>
