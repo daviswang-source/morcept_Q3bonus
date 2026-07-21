@@ -210,13 +210,25 @@ let CUR_USER=null, CUR_SEASON='2026-Q3';
 let DB={};
 
 // ══ 資料存取 ══
-function loadDB(){try{const r=localStorage.getItem(STORAGE_KEY);if(r)DB=JSON.parse(r);}catch(e){DB={};}}
+function loadDB(){try{const r=localStorage.getItem(STORAGE_KEY);if(r){DB=JSON.parse(r);migrateLegacyData();}}catch(e){DB={};}}
 function loadCFG(){try{const r=localStorage.getItem(CFG_KEY);if(r)Object.assign(CFG,JSON.parse(r));}catch(e){}}
 function saveDB(){try{localStorage.setItem(STORAGE_KEY,JSON.stringify(DB));toast('已儲存','ok');}catch(e){toast('儲存失敗','err');}}
 function saveCFG(){try{localStorage.setItem(CFG_KEY,JSON.stringify(CFG));}catch(e){}}
 
 function getSeason(){if(!DB[CUR_SEASON])DB[CUR_SEASON]={cases:[],sales:{},pm:{},maint:{},design:{}};return DB[CUR_SEASON];}
 function getCases(){return getSeason().cases||(getSeason().cases=[]);}
+
+// ── 相容層：舊資料 designId:'bevic' 自動轉成 'shanna' ──
+function migrateLegacyData(){
+  let dirty=false;
+  Object.values(DB).forEach(season=>{
+    if(!season.cases)return;
+    season.cases.forEach(c=>{
+      if(c.designId==='bevic'){c.designId='shanna';dirty=true;}
+    });
+  });
+  if(dirty){saveDB();console.log('[migration] bevic → shanna 完成');}
+}
 function getSales(who){const s=getSeason();if(!s.sales[who])s.sales[who]={deposits:[]};return s.sales[who];}
 function getPM(who){const s=getSeason();if(!s.pm[who])s.pm[who]={followOk:0,followTotal:0,crossOk:0,crossTotal:0,extra:0};return s.pm[who];}
 function getMaint(){
