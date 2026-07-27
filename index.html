@@ -236,19 +236,21 @@ const CASE_STATUS={
 };
 
 let CFG={
-  pool:{sales:110000,pm:80000,maint:20000,design:100000},
-  salesMainPool:90000,
+  pool:{sales:200000,pm:80000,maint:20000,design:100000},
+  salesAssistPool:20000, // 助理池，固定金額（業務部總池200,000裡的一塊）
+  salesTeamPool:31500,   // 合作獎金池，由 Murphy 在管理介面設定
   salesMainCount:2,salesAssistCount:1,
-  salesSplit:{contract:0.65,team:0.35},
-  salesThresholds:[{amt:500000,pct:.6},{amt:700000,pct:.8},{amt:900000,pct:1.0}],
+  // 接案獎金：門檻對照固定金額表（門檻＝季認列業績＝訂金累積，50%訂金未稅）
+  salesThresholds:[
+    {amt:900000,  bonus:13500, label:'門檻一'},
+    {amt:1050000, bonus:36750, label:'門檻二'},
+    {amt:1300000, bonus:65000, label:'門檻三'},
+    {amt:1500000, bonus:85000, label:'🔥挑戰賽'}
+  ],
   pmCount:3,
-  pmScoreAchieve:60,
-  pmScoreBase:{follow:25,cross:15},
-  pmExtraMax:20,
   pmTeamBonus:10000,
-  planScores:{'單頁式網站':2,'標準多頁':3,'平面':4,'品牌型錄':6,'多語型錄':8,'購物車':10,'SEO附加':4},
-  maintThresholds:[{rate:92,score:60},{rate:95,score:80},{rate:100,score:100}],
-  maintExtraMax:20,
+  maintRenewThreshold:0.9, // 續約率門檻90%
+  maintMultiRate:{renew1:1.0,renew3:1.2,renew5:1.5},
   design:{execRatio:.6,collabRatio:.3,leadRatio:.1,extraMax:20},
 };
 
@@ -342,11 +344,10 @@ function getPM(who){const s=getSeason();if(!s.pm[who])s.pm[who]={followOk:0,foll
 function getMaint(){
   const s=getSeason();
   if(!s.maint.jessie)s.maint.jessie={
-    total:0, exclude:0, renewed:0, extra:0,
-    yr3:0,    // 本季續約3年以上件數（Jessie填）
-    yr5:0,    // 本季續約5年以上件數（Jessie填）
-    yr3Min:3, // 觸發20%加成所需3年以上件數（主管設定，預設3）
-    yr5Min:2, // 觸發50%加成所需5年以上件數（主管設定，預設2）
+    total:0, exclude:0,
+    renew1:0, // 本季續約1年件數（×1.0）
+    renew3:0, // 本季續約3年以上件數（×1.2）
+    renew5:0, // 本季續約5年以上件數（×1.5）
   };
   return s.maint.jessie;
 }
@@ -590,13 +591,6 @@ function getCasesByDesignType(type){
   // type: 'web' | 'flat'
   return getCases().filter(c=>c.caseType===type&&['pending_design','designing','done'].includes(c.status));
 }
-function getPlanScore(c){
-  if(!c)return 0;
-  let s=CFG.planScores[c.plan]||0;
-  if(c.caseType==='flat')s=CFG.planScores['平面']||4;
-  if(c.seoAdd)s+=CFG.planScores['SEO附加']||4;
-  return s;
-}
 function caseStatusLabel(s){return CASE_STATUS[s]||s;}
 function caseStatusPill(s){
   const cls={pending_murphy:'pill-orange',pending_pm:'pill-yellow',in_progress:'pill-blue',
@@ -604,9 +598,6 @@ function caseStatusPill(s){
   return `<span class="pill ${cls[s]||'pill-gray'}">${caseStatusLabel(s)}</span>`;
 }
 function caseCard(c,actions=''){
-  const score=getPlanScore(c);
-  const coef=c.complexCoef||1.0;
-  const achieveScore=c.status==='done'?Math.round(score*coef*10)/10:0;
   return `<div class="case-card">
     <div class="case-card-hdr">
       <div>
@@ -616,7 +607,6 @@ function caseCard(c,actions=''){
           &nbsp;·&nbsp; 報價 ${fmt(c.quote)} &nbsp;·&nbsp; 訂金 ${fmt(c.deposit)}
           ${c.pmId?` &nbsp;·&nbsp; PM: ${MEMBERS[c.pmId]?.name}`:''}
           ${c.designId?` &nbsp;·&nbsp; 設計: ${MEMBERS[c.designId]?.name}`:''}
-          ${score?` &nbsp;·&nbsp; <strong style="color:var(--blue)">${achieveScore||score}分</strong>`:''}
         </div>
       </div>
       ${caseStatusPill(c.status)}
@@ -644,6 +634,17 @@ function renderSalesPane(){
   updateTeamResult();
 }
 
+// 本季案件列表收合狀態（預設展開，記住每個人的收合偏好）
+window._salesCasesOpen=window._salesCasesOpen||{};
+function isSalesCasesOpen(tid){return window._salesCasesOpen[tid]!==false;}
+function toggleSalesCases(tid){
+  window._salesCasesOpen[tid]=!isSalesCasesOpen(tid);
+  const list=document.getElementById('sales-cases-list-'+tid);
+  const arrow=document.getElementById('sales-cases-arrow-'+tid);
+  if(list)list.style.display=isSalesCasesOpen(tid)?'':'none';
+  if(arrow)arrow.textContent=isSalesCasesOpen(tid)?'▾ 收合':'▸ 展開';
+}
+
 function buildSalesBlock(tid,editable){
   const d=getSales(tid);
   const deposits=d.deposits||[];
@@ -655,12 +656,12 @@ function buildSalesBlock(tid,editable){
 
   const maxAmt=CFG.salesThresholds[CFG.salesThresholds.length-1].amt;
   const barPct=Math.min(100,r.depositTotal/maxAmt*100);
-  const topTh=CFG.salesThresholds.slice().reverse().find(t=>r.depositTotal>=t.amt);
+  const topTh=r.topTh;
 
   return `<div class="card">
     <div class="card-hdr">
       <div class="card-title">${MEMBERS[tid].name}</div>
-      <span class="pill ${topTh?'pill-green':'pill-gray'}">${topTh?'達標 '+Math.round(topTh.pct*100)+'%':'未達標'}</span>
+      <span class="pill ${topTh?'pill-green':'pill-gray'}">${topTh?'達標 '+topTh.label+' · '+fmt(topTh.bonus):'未達標'}</span>
     </div>
     <div class="card-body">
       <!-- 新增案件 -->
@@ -669,15 +670,20 @@ function buildSalesBlock(tid,editable){
         ${buildNewCaseForm(tid)}
       </div>
       <div class="divider"></div>`:''}
-      <!-- 本季案件列表 -->
-      <div class="sec-label">本季案件（${myCases.length} 件）</div>
-      ${myCases.length?myCases.map(c=>`<div style="display:flex;justify-content:space-between;align-items:center;padding:7px 10px;background:var(--s2);border-radius:7px;margin-bottom:5px;font-size:12px">
-        <div><strong>${c.client}</strong> &nbsp; ${c.caseType==='web'?c.plan||'未選方案':'平面'}${c.seoAdd?' +SEO':''}${c.customAdd?' +客製':''} &nbsp; ${fmt(c.quote)}</div>
-        <div style="display:flex;align-items:center;gap:6px">${caseStatusPill(c.status)} ${fmt(c.deposit)} 訂金</div>
-      </div>`).join(''):`<div style="font-size:12px;color:var(--t3);padding:8px 0">尚無案件</div>`}
+      <!-- 本季案件列表（可收合） -->
+      <div class="sec-label" style="cursor:pointer;display:flex;align-items:center;justify-content:space-between" onclick="toggleSalesCases('${tid}')">
+        <span>本季案件（${myCases.length} 件）</span>
+        <span id="sales-cases-arrow-${tid}" style="color:var(--t3);font-size:11px">${isSalesCasesOpen(tid)?'▾ 收合':'▸ 展開'}</span>
+      </div>
+      <div id="sales-cases-list-${tid}" style="${isSalesCasesOpen(tid)?'':'display:none'}">
+        ${myCases.length?myCases.map(c=>`<div style="display:flex;justify-content:space-between;align-items:center;padding:7px 10px;background:var(--s2);border-radius:7px;margin-bottom:5px;font-size:12px">
+          <div><strong>${c.client}</strong> &nbsp; ${c.caseType==='web'?c.plan||'未選方案':'平面'}${c.seoAdd?' +SEO':''}${c.customAdd?' +客製':''} &nbsp; ${fmt(c.quote)}</div>
+          <div style="display:flex;align-items:center;gap:6px">${caseStatusPill(c.status)} ${fmt(c.deposit)} 訂金</div>
+        </div>`).join(''):`<div style="font-size:12px;color:var(--t3);padding:8px 0">尚無案件</div>`}
+      </div>
       <!-- 訂金進度 -->
       <div class="divider"></div>
-      <div class="sec-label">接案訂金達標進度</div>
+      <div class="sec-label">接案獎金門檻進度（訂金累積＝季認列業績）</div>
       <div style="position:relative;height:9px;background:var(--s3);border-radius:5px;margin-bottom:18px">
         <div style="height:100%;width:${barPct}%;background:${topTh?'var(--green)':'var(--blue)'};border-radius:5px;transition:.4s"></div>
         ${CFG.salesThresholds.map(th=>{
@@ -685,7 +691,7 @@ function buildSalesBlock(tid,editable){
           const hit=r.depositTotal>=th.amt;
           return `<div style="position:absolute;left:${pos}%;top:-4px;transform:translateX(-50%)">
             <div style="width:2px;height:17px;background:${hit?'var(--green)':'#ccc'};margin:0 auto"></div>
-            <div style="font-size:9px;color:${hit?'var(--green)':'var(--t3)'};white-space:nowrap;transform:translateX(-40%);margin-top:1px">${Math.round(th.amt/10000)}萬</div>
+            <div style="font-size:9px;color:${hit?'var(--green)':'var(--t3)'};white-space:nowrap;transform:translateX(-40%);margin-top:1px">${th.label} ${fmt(th.bonus)}</div>
           </div>`;
         }).join('')}
       </div>
@@ -694,13 +700,13 @@ function buildSalesBlock(tid,editable){
           <div class="mini-stat-val" style="color:var(--blue)">${fmt(r.depositTotal)}</div>
           <div class="mini-stat-lbl">訂金累積</div>
         </div>
-        <div class="mini-stat"><div class="mini-stat-val" style="color:${topTh?'var(--green)':'var(--orange)'}">${fmt(r.contractBonus)}</div><div class="mini-stat-lbl">接案獎金預估</div></div>
+        <div class="mini-stat"><div class="mini-stat-val" style="color:${topTh?'var(--green)':'var(--orange)'}">${fmt(r.contractBonus)}</div><div class="mini-stat-lbl">接案獎金（固定金額對照）</div></div>
       </div>
       <div class="g2">
         <div class="mini-stat"><div class="mini-stat-val" style="color:var(--green)">${fmt(r.doneTotal)}</div><div class="mini-stat-lbl">本季結案金額（${r.doneCount}件）</div></div>
         <div class="mini-stat"><div class="mini-stat-val" style="color:var(--t2)">${myCases.length}</div><div class="mini-stat-lbl">本季總接案件</div></div>
       </div>
-      <div style="font-size:11px;color:var(--t3);margin-top:6px">個人份額上限 ${fmt(r.perMain)}，訂金達門檻後比例領取 · 10月發放</div>
+      <div style="font-size:11px;color:var(--t3);margin-top:6px">依訂金累積門檻對照固定金額（13,500 / 36,750 / 65,000 / 挑戰賽85,000），Annie/Sandra 各自獨立計算 · 10月發放</div>
     </div>
   </div>`;
 }
@@ -825,7 +831,7 @@ function buildTeamBonusBlock(editable){
   </div>`;
 }
 
-// 銷售計算
+// 銷售計算：接案獎金＝訂金累積（＝季認列業績）對照固定金額門檻表，Annie/Sandra 各自獨立計算
 function calcSalesBonus(tid){
   const myCases=getCases().filter(c=>c.salesId===tid&&c.status!=='void');
   // 接案獎金門檻：只看訂金累積
@@ -833,13 +839,11 @@ function calcSalesBonus(tid){
   // 結案業績統計（另外顯示，不影響接案獎金門檻）
   const doneTotal=myCases.filter(c=>c.status==='done').reduce((s,c)=>s+(+c.quote||0),0);
   const doneCount=myCases.filter(c=>c.status==='done').length;
-  const thresholds=CFG.salesThresholds;
-  let contractPct=0;
-  for(const th of [...thresholds].sort((a,b)=>b.amt-a.amt)){if(depositTotal>=th.amt){contractPct=th.pct;break;}}
-  const contractPool=CFG.salesMainPool*CFG.salesSplit.contract;
-  const perMain=CFG.salesMainCount>0?contractPool/CFG.salesMainCount:0;
-  const contractBonus=perMain*contractPct;
-  return {depositTotal,doneTotal,doneCount,contractPct,contractBonus,perMain};
+  const thresholds=[...CFG.salesThresholds].sort((a,b)=>b.amt-a.amt);
+  let topTh=null;
+  for(const th of thresholds){if(depositTotal>=th.amt){topTh=th;break;}}
+  const contractBonus=topTh?topTh.bonus:0;
+  return {depositTotal,doneTotal,doneCount,topTh,contractBonus};
 }
 function calcAutoTeamRate(){
   const cases=getCases().filter(c=>c.pmId&&c.caseType==='web'&&c.status!=='void');
@@ -860,11 +864,11 @@ function updateElenaResult(){
   const el=document.getElementById('elena-result');
   const pill=document.getElementById('elena-pill');
   if(!el)return;
-  const assistPool=CFG.pool.sales-CFG.salesMainPool;
+  const assistPool=CFG.salesAssistPool;
   const perTrigger=CFG.salesMainCount>0?assistPool/CFG.salesMainCount:0;
   const perAssist=CFG.salesAssistCount>0?perTrigger/CFG.salesAssistCount:0;
-  const annieOk=calcSalesBonus('annie').contractPct>0;
-  const sandraOk=calcSalesBonus('sandra').contractPct>0;
+  const annieOk=calcSalesBonus('annie').contractBonus>0;
+  const sandraOk=calcSalesBonus('sandra').contractBonus>0;
   const triggered=(annieOk?1:0)+(sandraOk?1:0);
   const bonus=Math.round(triggered*perAssist);
   if(pill)pill.innerHTML=bonus>0?`<span class="pill pill-green">預估 ${fmt(bonus)}</span>`:`<span class="pill pill-gray">尚無達標</span>`;
@@ -888,13 +892,14 @@ function updateTeamResult(){
   const manual=s.sales?.manualTeamRate;
   const isAuto=(manual===undefined||manual===null||manual==='');
   const rate=isAuto?auto.rate:(+manual/100);
-  const pool=CFG.salesMainPool*CFG.salesSplit.team;
-  const each=Math.round(pool*rate/2);
+  const pool=CFG.salesTeamPool;
+  const reached=rate>=0.6;
+  const each=reached?Math.round(pool*rate/2):0;
   el.innerHTML=`<div class="g2">
-    <div class="mini-stat"><div class="mini-stat-val" style="color:var(--green)">${fmt(each)}</div><div class="mini-stat-lbl">Annie 合作獎金</div></div>
-    <div class="mini-stat"><div class="mini-stat-val" style="color:var(--green)">${fmt(each)}</div><div class="mini-stat-lbl">Sandra 合作獎金</div></div>
+    <div class="mini-stat"><div class="mini-stat-val" style="color:${reached?'var(--green)':'var(--t3)'}">${fmt(each)}</div><div class="mini-stat-lbl">Annie 合作獎金</div></div>
+    <div class="mini-stat"><div class="mini-stat-val" style="color:${reached?'var(--green)':'var(--t3)'}">${fmt(each)}</div><div class="mini-stat-lbl">Sandra 合作獎金</div></div>
   </div>
-  <div style="font-size:11px;color:var(--t3);margin-top:7px">合作池 ${fmt(pool)} × ${Math.round(rate*100)}% = ${fmt(pool*rate)} ÷ 2 = 各 ${fmt(each)}</div>`;
+  <div style="font-size:11px;color:var(--t3);margin-top:7px">${reached?`合作池 ${fmt(pool)} × ${Math.round(rate*100)}% = ${fmt(pool*rate)} ÷ 2 = 各 ${fmt(each)}`:`結案率 ${Math.round(rate*100)}% 未達 60%，尚無合作獎金`}</div>`;
 }
 
 // ══════════════════════
@@ -924,18 +929,14 @@ function renderMurphyAssign(){
   const el=document.getElementById('murphy-sub');
   if(!el)return;
 
-  const planScore_info=Object.entries(CFG.planScores).map(([p,s])=>`${p}=${s}分`).join('・');
-
   el.innerHTML=`
-    <div class="notice">📊 方案分值參考：${planScore_info}</div>
     ${pending.length===0?`<div class="card"><div class="card-body" style="text-align:center;padding:24px;color:var(--t3)">目前沒有待指派的案件</div></div>`
     :pending.map(c=>{
-      const score=getPlanScore(c);
       const pmIds=['daniel','davis','shanna'];
-      // 各PM現有成就分
-      const pmScores=pmIds.map(id=>{
-        const r=calcPMScore(id);
-        return `${MEMBERS[id].name}(${Math.round(r.achieveScore)}分)`;
+      // 各PM目前已結案金額（分潤依此比例計算，僅供指派時參考）
+      const pmAmts=pmIds.map(id=>{
+        const r=calcPMBonus(id);
+        return `${MEMBERS[id].name}(${fmt(r.myAmt)})`;
       }).join('・');
 
       return `<div class="card">
@@ -947,9 +948,8 @@ function renderMurphyAssign(){
                 業務：${MEMBERS[c.salesId]?.name} &nbsp;·&nbsp;
                 ${c.caseType==='web'?`🌐 ${c.plan||'未選'}${c.seoAdd?' +SEO':''}${c.customAdd?' +客製':''}`:`🎨 平面${c.flatDesc?' · '+c.flatDesc:''}`}
                 &nbsp;·&nbsp; 報價 ${fmt(c.quote)} &nbsp;·&nbsp; 訂金 ${fmt(c.deposit)}
-                ${score?`&nbsp;·&nbsp; <strong style="color:var(--blue)">PM成就分 +${score}分</strong>`:''}
               </div>
-              <div style="font-size:11px;color:var(--t3);margin-top:4px">各PM目前成就分：${pmScores}</div>
+              <div style="font-size:11px;color:var(--t3);margin-top:4px">各PM目前已結案金額：${pmAmts}</div>
             </div>
             <span class="pill pill-orange">待指派</span>
           </div>
@@ -958,12 +958,6 @@ function renderMurphyAssign(){
             <select class="fi fi-md" id="assign-pm-${c.id}">
               <option value="">— 選擇 PM —</option>
               ${pmIds.map(id=>`<option value="${id}">${MEMBERS[id].name}</option>`).join('')}
-            </select>
-            <select class="fi fi-md" id="assign-coef-${c.id}">
-              <option value="1.0">×1.0 一般</option>
-              <option value="1.3">×1.3 中等</option>
-              <option value="1.6">×1.6 困難</option>
-              <option value="2.0">×2.0 特殊</option>
             </select>
             <button class="action-btn btn-primary" onclick="murphyAssignPM('${c.id}')">✅ 指派</button>
           </div>
@@ -975,12 +969,9 @@ function renderMurphyAssign(){
 function murphyAssignPM(cid){
   const pmId=document.getElementById('assign-pm-'+cid)?.value;
   if(!pmId){toast('請選擇 PM','err');return;}
-  const coefRaw=document.getElementById('assign-coef-'+cid)?.value;
-  const coef=coefRaw?parseFloat(coefRaw):1.0;
   const c=getCases().find(x=>x.id===cid);
   if(!c)return;
   c.pmId=pmId;
-  c.complexCoef=coef;
   c.status='pending_pm';
   saveDB();
   toast(`${c.client} 已指派給 ${MEMBERS[pmId].name}`,'ok');
@@ -1052,12 +1043,12 @@ function renderPMPane(){
   document.getElementById('pm-content').innerHTML=`
     <div class="sub-nav">
       <button class="sub-tab ${pmSubTab==='cases'?'on':''}" onclick="window._pmSubTab='cases';renderPMPane()">📋 案件列表</button>
-      <button class="sub-tab ${pmSubTab==='score'?'on':''}" onclick="window._pmSubTab='score';renderPMPane()">📊 計分詳情</button>
+      <button class="sub-tab ${pmSubTab==='score'?'on':''}" onclick="window._pmSubTab='score';renderPMPane()">📊 分潤明細</button>
     </div>
     <div id="pm-sub"></div>`;
 
   if(pmSubTab==='cases') renderPMCases(targets,adm,who);
-  else renderPMScore(targets,adm,who);
+  else renderPMShare(targets,adm,who);
 }
 
 function renderPMCases(targets,adm,who){
@@ -1083,17 +1074,15 @@ function renderPMCases(targets,adm,who){
 
   targets.forEach(tid=>{
     const myCases=getCasesByPM(tid).filter(c=>c.status!=='void');
-    const pmScore=calcPMScore(tid);
+    const pr=calcPMBonus(tid);
     html+=`<div class="card">
       <div class="card-hdr">
         <div class="card-title">${MEMBERS[tid].name}</div>
-        <span class="pill pill-blue">${Math.round(pmScore.achieveScore)}/${pmScore.achieveMax} 成就分</span>
+        <span class="pill pill-blue">已結案 ${fmt(pr.myAmt)}${pr.totalAmt>0?`（佔比 ${Math.round(pr.pct*100)}%）`:''}</span>
       </div>
       <div class="card-body">
         ${myCases.length===0?`<div style="font-size:12px;color:var(--t3);padding:8px 0">目前沒有指派案件</div>`
         :myCases.map(c=>{
-          const score=getPlanScore(c);
-          const coef=c.complexCoef||1.0;
           const actions=[];
           // PM 確認（pending_pm → in_progress）
           if(c.status==='pending_pm'&&(adm||who===tid)){
@@ -1106,12 +1095,6 @@ function renderPMCases(targets,adm,who){
           // 確認完成（designing → done）
           if(c.status==='designing'&&(adm||who===tid)){
             actions.push(`<button class="action-btn btn-green" onclick="pmConfirmDone('${c.id}')">🏁 確認結案</button>`);
-          }
-          // 難度係數（管理者可改）
-          if(adm){
-            actions.push(`<select class="fi" style="width:90px;padding:5px 7px" onchange="pmSetCoef('${c.id}',this.value)">
-              ${[1.0,1.3,1.6,2.0].map(v=>`<option value="${v}" ${(c.complexCoef||1.0)==v?'selected':''}>×${v}${v==1.0?' 一般':v==1.3?' 中':v==1.6?' 難':' 特殊'}</option>`).join('')}
-            </select>`);
           }
           return caseCard(c,actions.join(''));
         }).join('')}
@@ -1143,99 +1126,35 @@ function pmConfirmDone(cid){
   c.status='done';
   saveDB();toast(`${c.client} 已結案`,'ok');renderPMPane();
 }
-function pmSetCoef(cid,val){
-  const c=getCases().find(x=>x.id===cid);
-  if(!c)return;
-  c.complexCoef=+val;
-  saveDB();renderPMPane();
-}
-
-function buildPMScoreDetail(tid,r,adm){
+function buildPMShareDetail(tid,r){
   return `
-    <div class="g4" style="margin-bottom:12px">
-      <div class="mini-stat"><div class="mini-stat-val" style="color:var(--blue)">${Math.round(r.achieveScore)}${adm?`<span style="font-size:10px;color:var(--t3)">/${r.achieveMax}</span>`:''}</div><div class="mini-stat-lbl">成就分</div></div>
-      <div class="mini-stat"><div class="mini-stat-val" style="color:var(--purple)">${Math.round(r.followScore)}${adm?`<span style="font-size:10px;color:var(--t3)">/${r.followMax}</span>`:''}</div><div class="mini-stat-lbl">追蹤率</div></div>
-      <div class="mini-stat"><div class="mini-stat-val" style="color:#0891b2">${Math.round(r.crossScore)}${adm?`<span style="font-size:10px;color:var(--t3)">/${r.crossMax}</span>`:''}</div><div class="mini-stat-lbl">跨部門</div></div>
-      <div class="mini-stat"><div class="mini-stat-val" style="color:var(--orange)">${Math.round(r.extra)}${adm?`<span style="font-size:10px;color:var(--t3)">/${CFG.pmExtraMax}</span>`:''}</div><div class="mini-stat-lbl">加分項</div></div>
+    <div class="g2" style="margin-bottom:12px">
+      <div class="mini-stat"><div class="mini-stat-val" style="color:var(--blue)">${fmt(r.myAmt)}</div><div class="mini-stat-lbl">已結案金額</div></div>
+      <div class="mini-stat"><div class="mini-stat-val" style="color:var(--purple)">${r.totalAmt>0?Math.round(r.pct*100):0}%</div><div class="mini-stat-lbl">佔三人結案金額比</div></div>
     </div>
     <div class="result-bar">
-      <div><div class="result-label">預估獎金</div><div class="result-amount">${fmt(r.bonus)}</div><div class="result-detail">份額${fmt(r.share)} × ${Math.round(r.totalScore)}% ${r.teamBonus?'+ 團績'+fmt(r.teamBonus):''}</div></div>
-      <div style="font-size:26px;font-weight:800;color:var(--gold)">${Math.round(r.totalScore)}<span style="font-size:12px">/100</span></div>
+      <div><div class="result-label">預估獎金</div><div class="result-amount">${fmt(r.bonus)}</div><div class="result-detail">分潤池 ${fmt(CFG.pool.pm)} × ${r.totalAmt>0?Math.round(r.pct*100):0}% = ${fmt(r.shareBonus)}${r.teamBonus?' + 維運協作團績 '+fmt(r.teamBonus):''}</div></div>
     </div>`;
 }
 
-function renderPMScore(targets,adm,who){
+function renderPMShare(targets,adm,who){
   const el=document.getElementById('pm-sub');
   if(!el)return;
   let html='';
+  html+=`<div class="notice">個人獎金 = 個人已結案報價金額 ÷ 三人已結案報價總和 × 分潤池 NT$${fmt(CFG.pool.pm)}，僅計入「已結案」案件，無門檻無上限</div>`;
   targets.forEach(tid=>{
-    const d=getPM(tid);
-    const r=calcPMScore(tid);
+    const r=calcPMBonus(tid);
     html+=`<div class="card">
       <div class="card-hdr">
         <div class="card-title">${MEMBERS[tid].name}</div>
-        <span class="pill ${r.totalScore>=60?'pill-green':'pill-orange'}" id="pm-pill-${tid}">${Math.round(r.totalScore)}/100分</span>
+        <span class="pill pill-blue">${fmt(r.bonus)}</span>
       </div>
-      <div class="card-body">
-        <div id="pm-score-${tid}">${buildPMScoreDetail(tid,r,adm)}</div>
-        <div class="divider"></div>
-        <div class="sec-label">🔍 停滯追蹤率</div>
-        <div class="field-row">
-          <span class="field-label">案件總數</span>
-          <input class="fi fi-sm" type="number" min="0" value="${d.followTotal||''}" placeholder="0"
-            oninput="setPMBase('${tid}','followTotal',+this.value)">
-          <span class="unit">件</span>
-        </div>
-        <div class="field-row">
-          <span class="field-label">未追蹤件數</span>
-          <input class="fi fi-sm" type="number" min="0" value="${d.followMiss||''}" placeholder="0"
-            oninput="setPMBase('${tid}','followMiss',+this.value)"
-            ${adm?'':'disabled'}>
-          <span class="unit">件</span>
-          ${adm?'<span style="font-size:11px;color:var(--t3)">主管填寫</span>':''}
-        </div>
-        <div class="sec-label">🔗 跨部門追蹤</div>
-        <div class="field-row">
-          <span class="field-label">跨部門任務數</span>
-          <input class="fi fi-sm" type="number" min="0" value="${d.crossTotal||''}" placeholder="0"
-            oninput="setPMBase('${tid}','crossTotal',+this.value)">
-          <span class="unit">件</span>
-        </div>
-        <div class="field-row">
-          <span class="field-label">有追蹤紀錄</span>
-          <input class="fi fi-sm" type="number" min="0" value="${d.crossOk||''}" placeholder="0"
-            oninput="setPMBase('${tid}','crossOk',+this.value)">
-          <span class="unit">件</span>
-        </div>
-        ${adm?`<div class="sec-label">⭐ 主管額外加分</div>
-        <div class="field-row">
-          <span class="field-label">加分項</span>
-          <input class="fi fi-sm" type="number" min="0" max="${CFG.pmExtraMax}" value="${d.extra||''}" placeholder="0"
-            oninput="setPMBase('${tid}','extra',+this.value)">
-          <span class="unit">/ ${CFG.pmExtraMax}分</span>
-          <span style="font-size:11px;color:var(--t3)">主管填寫</span>
-        </div>`:''}
-      </div>
+      <div class="card-body">${buildPMShareDetail(tid,r)}</div>
     </div>`;
   });
   el.innerHTML=html;
 }
 
-function setPMBase(tid,key,val){
-  const d=getPM(tid);d[key]=val;saveDB();
-  // 即時更新計分顯示
-  const scoreEl=document.getElementById('pm-score-'+tid);
-  if(scoreEl){
-    const r=calcPMScore(tid);
-    scoreEl.innerHTML=buildPMScoreDetail(tid,r,isAdmin(CUR_USER));
-  }
-  // 更新 pill
-  const pill=document.getElementById('pm-pill-'+tid);
-  if(pill){
-    const r=calcPMScore(tid);
-    pill.innerHTML=`<span class="pill ${r.totalScore>=60?'pill-green':'pill-orange'}">${Math.round(r.totalScore)}/100分</span>`;
-  }
-}
 function setTeamBonus(val){const s=getSeason();if(!s.pm)s.pm={};s.pm.teamBonus=val;saveDB();}
 function voidCase(cid){
   const c=getCases().find(x=>x.id===cid);
@@ -1268,33 +1187,20 @@ function restoreCase(cid){
   renderCurrentTab();
 }
 
-function calcPMScore(tid){
-  const d=getPM(tid);
-  const myCases=getCasesByPM(tid).filter(c=>c.status!=='void');
-  const achieveMax=CFG.pmScoreAchieve;
-  let achieveRaw=0;
-  myCases.filter(c=>c.status==='done').forEach(c=>{
-    const base=getPlanScore(c);
-    const coef=+(c.complexCoef||1.0);
-    achieveRaw+=base*coef;
+function calcPMBonus(tid){
+  // 個人獎金 = 個人已結案報價金額 ÷ 三人已結案報價總和 × 分潤池（NT$80,000），僅計入已結案案件，無門檻無上限
+  const pmIds=['daniel','davis','shanna'];
+  const amounts={};
+  pmIds.forEach(id=>{
+    amounts[id]=getCasesByPM(id).filter(c=>c.status==='done'&&c.status!=='void').reduce((s,c)=>s+(+c.quote||0),0);
   });
-  const achieveScore=Math.min(Math.round(achieveRaw*10)/10,achieveMax);
-  const followMax=CFG.pmScoreBase.follow;
-  const followTotal=+d.followTotal||0;
-  const followMiss=Math.min(+d.followMiss||0,followTotal);
-  const followScore=Math.round(followMax*(followTotal>0?(followTotal-followMiss)/followTotal:0)*10)/10;
-  const crossMax=CFG.pmScoreBase.cross;
-  const crossTotal=+d.crossTotal||0;
-  const crossOk=Math.min(+d.crossOk||0,crossTotal);
-  const crossScore=Math.round(crossMax*(crossTotal>0?crossOk/crossTotal:0)*10)/10;
-  const extra=Math.min(+d.extra||0,CFG.pmExtraMax);
-  const baseScore=followScore+crossScore;
-  const totalScore=Math.min(achieveScore+baseScore+extra,100);
+  const totalAmt=Object.values(amounts).reduce((s,v)=>s+v,0);
+  const myAmt=amounts[tid]||0;
+  const pct=totalAmt>0?myAmt/totalAmt:0;
+  const shareBonus=Math.round(CFG.pool.pm*pct);
   const teamBonus=getSeason().pm?.teamBonus?Math.round(CFG.pmTeamBonus/CFG.pmCount):0;
-  const share=CFG.pool.pm/CFG.pmCount;
-  const bonus=Math.round(share*(totalScore/100))+teamBonus;
-  return {achieveScore,achieveRaw,achieveMax,followScore,followMax,followTotal,followMiss,
-          crossScore,crossMax,crossTotal,crossOk,extra,baseScore,totalScore,bonus,share,teamBonus};
+  const bonus=shareBonus+teamBonus;
+  return {myAmt,totalAmt,pct,shareBonus,teamBonus,bonus,amounts};
 }
 
 // ══════════════════════
@@ -1305,19 +1211,18 @@ function renderMaintPane(){
   const editable=(who==='jessie'||isAdmin(who));
   const adm=isAdmin(who);
   const d=getMaint();
-  const r=calcMaintScore();
-  const thDesc=CFG.maintThresholds.sort((a,b)=>a.rate-b.rate).map(t=>`達${t.rate}%→${t.score}分`).join('、');
+  const r=calcMaintBonus();
   document.getElementById('maint-content').innerHTML=`
-    <div class="notice">${thDesc} · 不可抗力排除在外</div>
+    <div class="notice">加權續約率 ≥ 90% → 整包發放 NT$${fmt(CFG.pool.maint)}；未達標 → NT$0（全有全無，不可抗力排除件數已從到期需續約數扣除）</div>
 
     <div class="card">
       <div class="card-hdr">
-        <div class="card-title">Jessie · 主機續約率</div>
-        <span class="pill ${r.renewScore>0?'pill-green':'pill-orange'}">${r.renewRate}% 續約率</span>
+        <div class="card-title">Jessie · 加權主機續約率</div>
+        <span class="pill ${r.reached?'pill-green':'pill-orange'}">${Math.round(r.weightedRate*100)}% 加權續約率</span>
       </div>
       <div class="card-body">
-        <div class="sec-label">本季合約資料</div>
-        ${[['到期合約總數','total','件',''],['不可抗力排除','exclude','件','客戶結束營業等'],['實際續約數','renewed','件','']].map(([lbl,key,unit,hint])=>`
+        <div class="sec-label">本季主機資料</div>
+        ${[['管理主機總數','total','件',''],['不可抗力排除件數','exclude','件','客戶結束營業等']].map(([lbl,key,unit,hint])=>`
         <div class="field-row">
           <span class="field-label">${lbl}</span>
           <input class="fi fi-sm" type="number" min="0" value="${d[key]||''}" placeholder="0"
@@ -1325,149 +1230,63 @@ function renderMaintPane(){
           <span class="unit">${unit}</span>
           ${hint?`<span style="font-size:11px;color:var(--t3)">${hint}</span>`:''}
         </div>`).join('')}
-        ${adm?`<div class="sec-label">⭐ 主管額外加分</div>
+        <div class="sec-label">本季各續約年限件數（依多年續率加權）</div>
+        ${[['續約1年','renew1','× 1.0'],['續約3年以上','renew3','× 1.2'],['續約5年以上','renew5','× 1.5']].map(([lbl,key,mult])=>`
         <div class="field-row">
-          <span class="field-label">加分項</span>
-          <input class="fi fi-sm" type="number" min="0" max="${CFG.maintExtraMax}" value="${d.extra||''}" placeholder="0"
-            oninput="setMaintField('extra',+this.value)">
-          <span class="unit">/ ${CFG.maintExtraMax}分</span>
-          <span style="font-size:11px;color:var(--t3)">主管填寫</span>
-        </div>`:''}
+          <span class="field-label">${lbl}</span>
+          <input class="fi fi-sm" type="number" min="0" value="${d[key]||''}" placeholder="0"
+            oninput="setMaintField('${key}',+this.value)" ${editable?'':'disabled'}>
+          <span class="unit">件</span>
+          <span style="font-size:11px;color:var(--t3)">${mult}</span>
+        </div>`).join('')}
         <div class="divider"></div>
         <div style="position:relative;height:9px;background:var(--s3);border-radius:5px;margin-bottom:18px">
-          <div style="height:100%;width:${Math.min(100,r.renewRate)}%;background:${r.renewScore>0?'var(--green)':'var(--orange)'};border-radius:5px;transition:.4s"></div>
-          ${CFG.maintThresholds.map(th=>{
-            const hit=r.renewRate>=th.rate;
-            return `<div style="position:absolute;left:${Math.min(100,th.rate)}%;top:-4px;transform:translateX(-50%)">
-              <div style="width:2px;height:17px;background:${hit?'var(--green)':'#ccc'};margin:0 auto"></div>
-              <div style="font-size:9px;color:${hit?'var(--green)':'var(--t3)'};white-space:nowrap;transform:translateX(-40%);margin-top:1px">${th.rate}%</div>
-            </div>`;
-          }).join('')}
+          <div style="height:100%;width:${Math.min(100,Math.round(r.weightedRate*100))}%;background:${r.reached?'var(--green)':'var(--orange)'};border-radius:5px;transition:.4s"></div>
+          <div style="position:absolute;left:90%;top:-4px;transform:translateX(-50%)">
+            <div style="width:2px;height:17px;background:${r.reached?'var(--green)':'#ccc'};margin:0 auto"></div>
+            <div style="font-size:9px;color:${r.reached?'var(--green)':'var(--t3)'};white-space:nowrap;transform:translateX(-40%);margin-top:1px">門檻90%</div>
+          </div>
         </div>
         <div class="g3" style="margin-bottom:12px">
-          <div class="mini-stat"><div class="mini-stat-val">${r.valid}</div><div class="mini-stat-lbl">有效到期件</div></div>
-          <div class="mini-stat"><div class="mini-stat-val" style="color:var(--green)">${r.renewed}</div><div class="mini-stat-lbl">已續約</div></div>
-          <div class="mini-stat"><div class="mini-stat-val" style="color:${r.renewScore>0?'var(--green)':'var(--orange)'}">${r.renewRate}%</div><div class="mini-stat-lbl">續約率</div></div>
+          <div class="mini-stat"><div class="mini-stat-val">${r.dueCount}</div><div class="mini-stat-lbl">到期需續約數</div></div>
+          <div class="mini-stat"><div class="mini-stat-val" style="color:var(--green)">${Math.round(r.weightedNum*10)/10}</div><div class="mini-stat-lbl">加權實際續約數</div></div>
+          <div class="mini-stat"><div class="mini-stat-val" style="color:${r.reached?'var(--green)':'var(--orange)'}">${Math.round(r.weightedRate*100)}%</div><div class="mini-stat-lbl">加權續約率</div></div>
         </div>
         <div style="background:var(--s2);border-radius:8px;padding:10px 12px;font-size:12px">
-          主機續約率獎金：<strong style="color:${r.baseBonus>0?'var(--green)':'var(--t3)'}">${fmt(r.baseBonus)}</strong>
-          <span style="color:var(--t3);margin-left:8px">（池 ${fmt(CFG.pool.maint)} × ${r.cappedScore}分）</span>
-        </div>
-      </div>
-    </div>
-
-    <div class="card">
-      <div class="card-hdr">
-        <div class="card-title">多年續約加成</div>
-        <span class="pill ${r.multiRate>0?'pill-green':'pill-gray'}">+${Math.round(r.multiRate*100)}% = ${fmt(r.multiBonus_actual)}</span>
-      </div>
-      <div class="card-body">
-        <div class="notice">達到指定長約件數可額外獲得加成（最多 ${fmt(r.multiBonus)} 元，取最高級距）</div>
-        <div class="g3" style="margin-bottom:14px">
-          <div style="background:var(--s2);border-radius:10px;padding:12px 14px;text-align:center;border:1px solid var(--border)">
-            <div style="font-size:11px;color:var(--t3);margin-bottom:5px">續約 1 年</div>
-            <div style="font-size:22px;font-weight:800">× 1.0</div>
-            <div style="font-size:11px;color:var(--t3);margin-top:4px">基準</div>
-          </div>
-          <div style="background:${r.multiRate===0.2?'#fff7ed':'var(--s2)'};border-radius:10px;padding:12px 14px;text-align:center;border:2px solid ${r.multiRate===0.2?'var(--orange)':'var(--border)'}">
-            <div style="font-size:11px;color:var(--t3);margin-bottom:5px">續約 3 年以上</div>
-            <div style="font-size:22px;font-weight:800;color:var(--orange)">× 1.2</div>
-            <div style="font-size:11px;color:var(--orange);margin-top:4px">加成 +20%</div>
-            <div style="font-size:10px;color:var(--t3);margin-top:5px">需達 ${r.yr3Min} 件</div>
-          </div>
-          <div style="background:${r.multiRate===0.5?'#f0fdf4':'var(--s2)'};border-radius:10px;padding:12px 14px;text-align:center;border:2px solid ${r.multiRate===0.5?'var(--green)':'var(--border)'}">
-            <div style="font-size:11px;color:var(--t3);margin-bottom:5px">續約 5 年以上</div>
-            <div style="font-size:22px;font-weight:800;color:var(--green)">× 1.5</div>
-            <div style="font-size:11px;color:var(--green);margin-top:4px">加成 +50%</div>
-            <div style="font-size:10px;color:var(--t3);margin-top:5px">需達 ${r.yr5Min} 件</div>
-          </div>
-        </div>
-        <div class="sec-label">本季長約客戶數</div>
-        <div class="field-row">
-          <span class="field-label">3年以上件數</span>
-          <input class="fi fi-sm" type="number" min="0" value="${d.yr3||''}" placeholder="0"
-            oninput="setMaintField('yr3',+this.value)" ${editable?'':'disabled'}>
-          <span class="unit">件</span>
-          <span style="font-size:12px;color:${r.yr3>=r.yr3Min?'var(--green)':'var(--t3)'}">
-            ${r.yr3>=r.yr3Min?'✅ 達標':'（需 '+r.yr3Min+' 件）'}
-          </span>
-        </div>
-        <div class="field-row">
-          <span class="field-label">5年以上件數</span>
-          <input class="fi fi-sm" type="number" min="0" value="${d.yr5||''}" placeholder="0"
-            oninput="setMaintField('yr5',+this.value)" ${editable?'':'disabled'}>
-          <span class="unit">件</span>
-          <span style="font-size:12px;color:${r.yr5>=r.yr5Min?'var(--green)':'var(--t3)'}">
-            ${r.yr5>=r.yr5Min?'✅ 達標':'（需 '+r.yr5Min+' 件）'}
-          </span>
-        </div>
-        ${adm?`<div class="divider"></div>
-        <div class="sec-label">⚙️ 門檻設定（主管設定，Jessie 不可見）</div>
-        <div class="field-row">
-          <span class="field-label">3年以上觸發件數</span>
-          <input class="fi fi-sm" type="number" min="1" value="${d.yr3Min||3}"
-            oninput="setMaintField('yr3Min',+this.value)">
-          <span class="unit">件 → 達標觸發 +20%（+${fmt(Math.round(r.multiBonus*0.4))}）</span>
-        </div>
-        <div class="field-row">
-          <span class="field-label">5年以上觸發件數</span>
-          <input class="fi fi-sm" type="number" min="1" value="${d.yr5Min||2}"
-            oninput="setMaintField('yr5Min',+this.value)">
-          <span class="unit">件 → 達標觸發 +50%（+${fmt(r.multiBonus)}）</span>
-        </div>`:''}
-        <div style="margin-top:12px;padding:10px 14px;border-radius:8px;background:${r.multiRate>0?'#f0fdf4':'var(--s2)'};font-size:12px;color:${r.multiRate>0?'var(--green)':'var(--t3)'}">
-          ${r.multiLabel}
+          維運獎金：<strong style="color:${r.totalBonus>0?'var(--green)':'var(--t3)'}">${fmt(r.totalBonus)}</strong>
+          <span style="color:var(--t3);margin-left:8px">（${r.reached?'✅ 達標，整包發放':'⏳ 未達90%，本季無維運獎金'}）</span>
         </div>
       </div>
     </div>
 
     <div class="result-bar">
       <div>
-        <div class="result-label">預估可領獎金合計</div>
+        <div class="result-label">預估可領獎金</div>
         <div class="result-amount">${fmt(r.totalBonus)}</div>
-        <div class="result-detail">主機續約 ${fmt(r.baseBonus)} + 多年加成 ${fmt(r.multiBonus_actual)}</div>
+        <div class="result-detail">${r.dueCount}件到期需續約 · 加權續約率 ${Math.round(r.weightedRate*100)}%</div>
       </div>
       <div style="text-align:right">
-        <div style="font-size:12px;opacity:.7">最高可達</div>
-        <div style="font-size:20px;font-weight:800;color:var(--gold)">${fmt(CFG.pool.maint+r.multiBonus)}</div>
+        <div style="font-size:12px;opacity:.7">達標整包</div>
+        <div style="font-size:20px;font-weight:800;color:var(--gold)">${fmt(CFG.pool.maint)}</div>
       </div>
     </div>`;
 }
 function setMaintField(key,val){const d=getMaint();d[key]=val;saveDB();renderMaintPane();}
-function calcMaintScore(){
+function calcMaintBonus(){
+  // 到期需續約數 = 管理主機總數 × 90% － 不可抗力排除件數
+  // 加權實際續約數 = 續約1年數×1.0 + 續約3年以上數×1.2 + 續約5年以上數×1.5
+  // 加權續約率 = 加權實際續約數 ÷ 到期需續約數；≥90% 整包發放，未達標 NT$0
   const d=getMaint();
-  const total=+d.total||0,excl=Math.min(+d.exclude||0,total),valid=total-excl;
-  const renewed=Math.min(+d.renewed||0,valid);
-  const renewRate=valid>0?Math.round(renewed/valid*100):0;
-  const ths=[...CFG.maintThresholds].sort((a,b)=>a.rate-b.rate);
-  let renewScore=0,reached=null;
-  for(const t of ths)if(renewRate>=t.rate)reached=t;
-  if(reached){
-    const idx=ths.indexOf(reached),next=ths[idx+1];
-    renewScore=next?Math.round(reached.score+(renewRate-reached.rate)/(next.rate-reached.rate)*(next.score-reached.score)):reached.score;
-  }
-  const extra=Math.min(+d.extra||0,CFG.maintExtraMax);
-  const cappedScore=Math.min(renewScore+extra,100);
-  const baseBonus=Math.round(CFG.pool.maint*cappedScore/100);
-
-  // ── 多年續約加成（最多 1W，取最高）──
-  const multiBonus=CFG.pool.maint*0.5; // 加成池上限 = 主池的50% = 最多1W（若主池2W）
-  const yr3=+d.yr3||0, yr5=+d.yr5||0;
-  const yr3Min=+d.yr3Min||3, yr5Min=+d.yr5Min||2;
-  let multiRate=0, multiLabel='';
-  if(yr5>=yr5Min){
-    multiRate=0.5; multiLabel=`${yr5}件5年以上 ≥ ${yr5Min}件門檻 → +50%`;
-  } else if(yr3>=yr3Min){
-    multiRate=0.2; multiLabel=`${yr3}件3年以上 ≥ ${yr3Min}件門檻 → +20%`;
-  } else {
-    multiLabel=`3年以上 ${yr3}/${yr3Min}件，5年以上 ${yr5}/${yr5Min}件，未達門檻`;
-  }
-  const multiBonus_actual=Math.round(multiBonus*multiRate);
-  const totalBonus=baseBonus+multiBonus_actual;
-
-  return {total,valid,renewed,renewRate,renewScore,extra,cappedScore,
-    baseBonus,multiBonus,multiRate,multiLabel,multiBonus_actual,totalBonus,
-    yr3,yr5,yr3Min,yr5Min};
+  const total=+d.total||0;
+  const exclude=Math.min(+d.exclude||0,total);
+  const dueCount=Math.max(0,Math.round((total*CFG.maintRenewThreshold-exclude)*10)/10);
+  const renew1=+d.renew1||0, renew3=+d.renew3||0, renew5=+d.renew5||0;
+  const mr=CFG.maintMultiRate;
+  const weightedNum=renew1*mr.renew1+renew3*mr.renew3+renew5*mr.renew5;
+  const weightedRate=dueCount>0?weightedNum/dueCount:0;
+  const reached=weightedRate>=CFG.maintRenewThreshold;
+  const totalBonus=reached?CFG.pool.maint:0;
+  return {total,exclude,dueCount,renew1,renew3,renew5,weightedNum,weightedRate,reached,totalBonus};
 }
 
 // ══════════════════════
@@ -1672,7 +1491,7 @@ function renderDesignPane(){
     html+=`<div class="card">
       <div class="card-hdr"><div class="card-title">🛠 修改協作 · John / Lisa</div></div>
       <div class="card-body">
-        <div class="notice">部門結案率 ≥ 60% 才發放獎金</div>
+        <div class="notice">團績獎金依部門結案率自動比例發放（非全有全無）；個績加成需部門結案率 ≥ 60% 且主管確認達標</div>
         <div class="g2">
           ${['john','lisa'].map(id=>{
             const team=id==='john'?r.johnTeam:r.lisaTeam;
@@ -1684,7 +1503,7 @@ function renderDesignPane(){
             </div>`;
           }).join('')}
         </div>
-        <div style="font-size:11px;color:var(--t3);margin-top:8px">${r.deptReached?`✅ 部門結案率達標${r.teamBonus?' · 全員團隊績效各 '+fmt(r.teamBonus):''}`:' ⏳ 部門結案率未達60%，待結案中'}</div>
+        <div style="font-size:11px;color:var(--t3);margin-top:8px">團績依結案率 ${Math.round(r.deptRate*100)}% 自動計算${r.deptReached?`；✅ 部門結案率達標 · 全員團隊績效各 ${fmt(r.teamBonus)}`:'；⏳ 部門結案率未達60%，全員團隊績效尚未發放'}</div>
       </div>
     </div>`;
   }
@@ -1719,7 +1538,7 @@ function calcDesignBonus(){
   const teamBonusPerPerson=2000; // 原Bevic部長獎金1萬改為全員團隊績效，每人2000
   const teamBonusTotal=teamBonusPerPerson*5; // 5人共1萬
   const execPool=Math.round(pool*d.execRatio);
-  const collabPool=pool-execPool; // leadRatio停用，剩餘給協作池
+  const collabPool=Math.round(pool*d.collabRatio); // 30%，與全員團隊績效池(10%)分開，不再互相吃掉
   const execIds=['putting','rori','mina'];
   const execAmts={},execBonus={};
   let totalAmt=0;
@@ -1734,9 +1553,9 @@ function calcDesignBonus(){
   const deptRate=allDesign.length>0?doneDesign.length/allDesign.length:0;
   const deptReached=deptRate>=0.6;
   const g=getDesignGlobal();
-  // 協作池（John/Lisa）
-  const johnTeam=deptReached?Math.round(collabPool/2):0;
-  const lisaTeam=deptReached?Math.round(collabPool/2):0;
+  // 協作池（John/Lisa）團績獎金＝協作池 × 部門整體結案率 ÷ 人數，依結案率自動計算，非全有全無
+  const johnTeam=Math.round(collabPool*deptRate/2);
+  const lisaTeam=Math.round(collabPool*deptRate/2);
   const johnIndv=deptReached&&g.johnOk?Math.round(pool*.05):0;
   const lisaIndv=deptReached&&g.lisaOk?Math.round(pool*.05):0;
   // 設計部全員團隊績效（原Bevic部長獎金改制）
@@ -1771,14 +1590,15 @@ function renderAdminSummary(){
   const manualRate=s.sales?.manualTeamRate;
   const isAuto=(manualRate===undefined||manualRate===null||manualRate==='');
   const teamRate=isAuto?auto.rate:(+manualRate/100);
-  const teamPool=CFG.salesMainPool*CFG.salesSplit.team;
-  const each=Math.round(teamPool*teamRate/2);
-  const assistPool=CFG.pool.sales-CFG.salesMainPool;
+  const teamReached=teamRate>=0.6;
+  const teamPool=CFG.salesTeamPool;
+  const each=teamReached?Math.round(teamPool*teamRate/2):0;
+  const assistPool=CFG.salesAssistPool;
   const annie=calcSalesBonus('annie'),sandra=calcSalesBonus('sandra');
-  const elenaT=(annie.contractPct>0?1:0)+(sandra.contractPct>0?1:0);
+  const elenaT=(annie.contractBonus>0?1:0)+(sandra.contractBonus>0?1:0);
   const elenaB=Math.round(elenaT*(assistPool/CFG.salesMainCount/(CFG.salesAssistCount||1)));
-  const daniel=calcPMScore('daniel'),davis=calcPMScore('davis'),shanna=calcPMScore('shanna');
-  const maint=calcMaintScore();
+  const daniel=calcPMBonus('daniel'),davis=calcPMBonus('davis'),shanna=calcPMBonus('shanna');
+  const maint=calcMaintBonus();
   const dr=calcDesignBonus();
   const g=getDesignGlobal();
 
@@ -1820,13 +1640,12 @@ function renderAdminSummary(){
             <tr style="background:var(--s2)"><td colspan="6" style="padding:5px 9px;font-size:10px;color:var(--t3)">── 專案部 ──</td></tr>
             ${['daniel','davis','shanna'].map(id=>{
               const d=id==='daniel'?daniel:id==='davis'?davis:shanna;
-              const ta=s.pm?.teamBonus?Math.round(CFG.pmTeamBonus/CFG.pmCount):0;
               return `<tr><td><strong>${MEMBERS[id].name}</strong></td><td style="color:var(--t3)">專案</td>
-                <td>${Math.round(d.achieveScore)}分</td><td>${Math.round(d.baseScore)}分</td>
-                <td>${Math.round(d.extra)}分${ta?` +${fmt(ta)}`:''}</td>
+                <td>${fmt(d.myAmt)}</td><td>${d.totalAmt>0?Math.round(d.pct*100):0}%</td>
+                <td>${d.teamBonus?'+'+fmt(d.teamBonus):'—'}</td>
                 <td><strong style="color:var(--green)">${fmt(d.bonus)}</strong></td></tr>`;
             }).join('')}
-            <tr><td><strong>Jessie</strong></td><td style="color:var(--t3)">維運</td><td>${maint.renewRate}%</td><td>${maint.cappedScore}分${maint.multiRate>0?' +'+Math.round(maint.multiRate*100)+'%':''}</td><td>—</td><td><strong style="color:var(--green)">${fmt(maint.totalBonus)}</strong></td></tr>
+            <tr><td><strong>Jessie</strong></td><td style="color:var(--t3)">維運</td><td>${Math.round(maint.weightedRate*100)}%</td><td>${maint.reached?'✅ 達標':'⏳ 未達90%'}</td><td>—</td><td><strong style="color:var(--green)">${fmt(maint.totalBonus)}</strong></td></tr>
             <tr style="background:var(--s2)"><td colspan="6" style="padding:5px 9px;font-size:10px;color:var(--t3)">── 設計部 · 執案池 ${fmt(dr.execPool)}，總結案金額 ${fmt(dr.totalAmt)}${dr.deptReached?' · 全員團隊績效各 '+fmt(dr.teamBonus):''}  ──</td></tr>
             ${['putting','rori','mina'].map(id=>`<tr><td><strong>${MEMBERS[id].name}</strong></td><td style="color:var(--t3)">執案</td>
               <td>${fmt(dr.execAmts[id]||0)}</td><td>${dr.totalAmt>0?Math.round((dr.execAmts[id]||0)/dr.totalAmt*100):0}%</td><td>${dr.teamBonus?'+'+fmt(dr.teamBonus):''}</td>
@@ -1853,24 +1672,18 @@ function renderAdminPool(){
         <div class="notice">修改後點儲存即時更新</div>
         <div class="sec-label">各部門獎金池</div>
         <div class="g2">
-          ${[['業務部總池','pool.sales'],['主要業務池','salesMainPool'],['專案部總池','pool.pm'],['維運部總池','pool.maint'],['設計部總池','pool.design']].map(([lbl,key])=>`
+          ${[['業務部總池','pool.sales'],['業務助理池','salesAssistPool'],['業務合作獎金池','salesTeamPool'],['專案部總池','pool.pm'],['維運部總池','pool.maint'],['設計部總池','pool.design']].map(([lbl,key])=>`
           <div class="field-row">
             <span class="field-label" style="min-width:130px">${lbl}</span>
             <input class="fi fi-sm" type="number" value="${getNestedCFG(key)||0}"
-              oninput="setNestedCFG('${key}',+this.value)">
+              oninput="setNestedCFG('${key}',+this.value);saveCFG();renderAdminSummary()">
             <span class="unit">元</span>
           </div>`).join('')}
         </div>
+        <div style="font-size:11px;color:var(--t3);margin-top:4px">合作獎金池（Annie/Sandra 結案率＞60%共享）文件未列固定金額，由 Murphy 於此設定</div>
 
         <div class="divider"></div>
         <div class="sec-label">業務設定</div>
-        <div class="field-row">
-          <span class="field-label" style="min-width:130px">接案比例</span>
-          <input class="fi fi-sm" type="number" min="0" max="100"
-            value="${Math.round((CFG.salesSplit?.contract||0.65)*100)}"
-            oninput="CFG.salesSplit.contract=+this.value/100;CFG.salesSplit.team=1-CFG.salesSplit.contract">
-          <span class="unit">%（其餘為合作）</span>
-        </div>
         <div class="field-row">
           <span class="field-label" style="min-width:130px">手動結案率覆蓋</span>
           <input class="fi fi-sm" type="number" min="0" max="100"
