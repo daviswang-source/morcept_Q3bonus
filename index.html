@@ -206,16 +206,18 @@ const STORAGE_KEY='morcept_bonus_v1';
 const CFG_KEY='morcept_cfg_v1';
 
 // ══ 人員（動態，從 Firestore 載入）══
+// adminLevel: 'super'=最高管理者, 'admin'=管理者, null/undefined=一般
+// role: 職能角色（main/assist/member/exec/collab），與管理層級分開
 const DEFAULT_MEMBERS={
-  murphy: {name:'Murphy', dept:'mgmt',   role:'super',  active:true},
+  murphy: {name:'Murphy', dept:'mgmt',   role:'member', adminLevel:'super', active:true},
   annie:  {name:'Annie',  dept:'sales',  role:'main',   active:true},
   sandra: {name:'Sandra', dept:'sales',  role:'main',   active:true},
   elena:  {name:'Elena',  dept:'sales',  role:'assist', active:true},
   daniel: {name:'Daniel', dept:'pm',     role:'member', active:true},
-  davis:  {name:'Davis',  dept:'pm',     role:'admin',  active:true},
+  davis:  {name:'Davis',  dept:'pm',     role:'member', adminLevel:'super', active:true},
   shanna: {name:'Shanna', dept:'pm',     role:'member', active:true},
   jessie: {name:'Jessie', dept:'maint',  role:'member', active:true},
-  putting:{name:'布丁',   dept:'design', role:'exec',   active:true},
+  putting:{name:'布丁',   dept:'design', role:'exec',   active:true, canAssign:true},
   rori:   {name:'RORI',   dept:'design', role:'exec',   active:true},
   mina:   {name:'MINA',   dept:'design', role:'exec',   active:true},
   john:   {name:'John',   dept:'design', role:'collab', active:true},
@@ -302,8 +304,25 @@ async function loadMembers(){
   await fbReady();
   try{
     const snap=await window.__fb.getDoc(window.__fb.doc(window.__fb.db,'app','members'));
-    if(snap.exists()){MEMBERS=snap.data().members||DEFAULT_MEMBERS;}
-    else{
+    if(snap.exists()){
+      MEMBERS=snap.data().members||DEFAULT_MEMBERS;
+      // Migration：補上 adminLevel（舊資料可能沒有這個欄位）
+      let dirty=false;
+      // murphy 永遠是 super
+      if(MEMBERS.murphy&&MEMBERS.murphy.adminLevel!=='super'){
+        MEMBERS.murphy.adminLevel='super'; dirty=true;
+      }
+      // davis 升為 super（新制）
+      if(MEMBERS.davis&&MEMBERS.davis.adminLevel!=='super'){
+        MEMBERS.davis.adminLevel='super'; dirty=true;
+      }
+      // 舊版 role:'super'/'admin' 的人也補上 adminLevel
+      Object.entries(MEMBERS).forEach(([id,m])=>{
+        if(m.role==='super'&&!m.adminLevel){m.adminLevel='super';dirty=true;}
+        if(m.role==='admin'&&!m.adminLevel){m.adminLevel='admin';dirty=true;}
+      });
+      if(dirty) await window.__fb.setDoc(window.__fb.doc(window.__fb.db,'app','members'),{members:MEMBERS});
+    } else {
       await window.__fb.setDoc(window.__fb.doc(window.__fb.db,'app','members'),{members:DEFAULT_MEMBERS});
       MEMBERS={...DEFAULT_MEMBERS};
     }
@@ -379,8 +398,8 @@ function toast(msg,type='ok'){
   document.getElementById('toast-wrap').appendChild(el);
   setTimeout(()=>el.remove(),2200);
 }
-function isSuper(who){return MEMBERS[who]?.role==='super';}
-function isAdmin(who){return ['super','admin'].includes(MEMBERS[who]?.role);}
+function isSuper(who){return MEMBERS[who]?.adminLevel==='super';}
+function isAdmin(who){return ['super','admin'].includes(MEMBERS[who]?.adminLevel);}
 function isMurphy(who){return who==='murphy';}
 
 // ══ Migration：舊資料 bevic→shanna ══
@@ -453,7 +472,8 @@ function loginAs(id){
 }
 function getDefaultTab(id){
   const m=MEMBERS[id];
-  if(!m||m.dept==='mgmt') return isMurphy(id)?'murphy':'admin';
+  if(isSuper(id)) return 'murphy';
+  if(!m||m.dept==='mgmt') return 'admin';
   if(m.dept==='sales') return 'sales';
   if(m.dept==='pm')    return 'pm';
   if(m.dept==='maint') return 'maint';
@@ -530,15 +550,6 @@ function submitResetPw(targetId){
 }
 function closeModal(){document.getElementById('modal-root').innerHTML='';}
 
-function getDefaultTab(id){
-  const m=MEMBERS[id];
-  if(!m||m.dept==='mgmt') return isMurphy(id)?'murphy':'admin';
-  if(m.dept==='sales') return 'sales';
-  if(m.dept==='pm')    return 'pm';
-  if(m.dept==='maint') return 'maint';
-  if(m.dept==='design')return 'design';
-  return 'admin';
-}
 function buildNav(id){
   const tabs=getVisibleTabs(id);
   document.getElementById('main-nav').innerHTML=tabs.map(t=>
@@ -557,7 +568,7 @@ function getVisibleTabs(id){
     {id:'admin',   label:'⚙️ 管理'},
     {id:'members', label:'👥 人員'},
   ];
-  if(isMurphy(id)) return all;
+  if(isSuper(id)) return all;
   if(isAdmin(id)) return all.filter(t=>!['murphy','members'].includes(t.id));
   if(dept==='sales') return [all[0]];
   if(dept==='pm')    return [all[1]];
@@ -1390,7 +1401,7 @@ function buildDesignRateDisplay(){
 function renderDesignPane(){
   const who=CUR_USER;
   const adm=isAdmin(who);
-  const isPutting=who==='putting';
+  const isPutting=MEMBERS[who]?.canAssign===true;
   const isShanna=who==='shanna';
   const execMembers=getDesignExec();
   const collabMembers=getDesignCollab();
@@ -1829,16 +1840,28 @@ function renderAdminPool(){
 // ══ 人員管理分頁 ══
 const DEPT_LABELS_M={mgmt:'管理',sales:'業務',pm:'專案',maint:'維運',design:'設計'};
 const ROLE_OPTIONS={
-  mgmt: [{v:'super',l:'最高管理者'},{v:'admin',l:'管理者'}],
+  mgmt: [{v:'member',l:'管理人員'}],
   sales:[{v:'main',l:'主要業務'},{v:'assist',l:'業務助理'}],
-  pm:   [{v:'member',l:'PM'},{v:'admin',l:'PM（管理者）'}],
+  pm:   [{v:'member',l:'PM'}],
   maint:[{v:'member',l:'維運人員'}],
   design:[{v:'exec',l:'執案設計師'},{v:'collab',l:'協作設計師'}],
 };
+const ADMIN_LEVEL_OPTIONS=[
+  {v:'',    l:'一般（無管理權限）'},
+  {v:'admin',l:'管理者'},
+  {v:'super',l:'最高管理者'},
+];
 function renderMembersPane(){
   const el=document.getElementById('members-content');
   if(!el)return;
   const depts=['mgmt','sales','pm','maint','design'];
+
+  const adminLabel=(m)=>{
+    if(m.adminLevel==='super') return '<span class="pill pill-orange">最高管理者</span>';
+    if(m.adminLevel==='admin') return '<span class="pill pill-purple">管理者</span>';
+    return '';
+  };
+
   el.innerHTML=`
     <div class="card" style="margin-bottom:12px">
       <div class="card-hdr"><div class="card-title">👥 人員管理</div></div>
@@ -1850,17 +1873,20 @@ function renderMembersPane(){
           return `<div style="margin-bottom:16px">
             <div class="sec-label">${DEPT_LABELS_M[dept]}</div>
             <table class="task-table">
-              <thead><tr><th>名稱</th><th>角色</th><th>狀態</th><th>操作</th></tr></thead>
+              <thead><tr><th>名稱</th><th>職能角色</th><th>管理層級</th><th>狀態</th><th>操作</th></tr></thead>
               <tbody>
                 ${deptMembers.map(([id,m])=>`<tr style="${m.active===false?'opacity:.45':''}">
                   <td><strong>${m.name}</strong></td>
                   <td style="color:var(--t3)">${ROLE_OPTIONS[dept]?.find(r=>r.v===m.role)?.l||m.role}</td>
+                  <td>${adminLabel(m)}</td>
                   <td>${m.active===false?'<span class="pill pill-gray">停用</span>':'<span class="pill pill-green">啟用</span>'}</td>
                   <td style="display:flex;gap:5px;flex-wrap:wrap">
                     ${m.active!==false
                       ?`<button class="action-btn" style="background:var(--s3);color:var(--t2);font-size:11px;padding:4px 9px" onclick="toggleMember('${id}',false)">停用</button>`
                       :`<button class="action-btn btn-primary" style="font-size:11px;padding:4px 9px" onclick="toggleMember('${id}',true)">恢復</button>`}
-                    ${isSuper(CUR_USER)&&id!=='murphy'?`<button class="action-btn" style="background:#fee2e2;color:var(--red);font-size:11px;padding:4px 9px" onclick="deleteMember('${id}')">刪除</button>`:''}
+                    ${m.dept==='design'?`<button class="action-btn" style="background:${m.canAssign?'#dcfce7':'var(--s3)'};color:${m.canAssign?'var(--green)':'var(--t2)'};font-size:11px;padding:4px 9px" onclick="toggleCanAssign('${id}')">${m.canAssign?'✅ 可分派':'分派權限'}</button>`:''}
+                    <button class="action-btn" style="background:var(--s3);color:var(--t2);font-size:11px;padding:4px 9px" onclick="openEditAdminLevel('${id}')">⚙️ 權限</button>
+                    ${isSuper(CUR_USER)&&id!=='murphy'&&id!==CUR_USER?`<button class="action-btn" style="background:#fee2e2;color:var(--red);font-size:11px;padding:4px 9px" onclick="deleteMember('${id}')">刪除</button>`:''}
                   </td>
                 </tr>`).join('')}
               </tbody>
@@ -1884,15 +1910,27 @@ function renderMembersPane(){
           </select>
         </div>
         <div class="field-row">
-          <span class="field-label">角色</span>
+          <span class="field-label">職能角色</span>
           <select class="fi fi-md" id="new-member-role">
             ${(ROLE_OPTIONS['mgmt']||[]).map(r=>`<option value="${r.v}">${r.l}</option>`).join('')}
+          </select>
+        </div>
+        <div class="field-row">
+          <span class="field-label">管理層級</span>
+          <select class="fi fi-md" id="new-member-admin-level">
+            ${ADMIN_LEVEL_OPTIONS.map(o=>`<option value="${o.v}">${o.l}</option>`).join('')}
           </select>
         </div>
         <div class="field-row">
           <span class="field-label">帳號ID</span>
           <input class="fi fi-md" id="new-member-id" type="text" placeholder="英文小寫，例如 david" maxlength="20">
           <span style="font-size:11px;color:var(--t3)">不可重複，不可修改</span>
+        </div>
+        <div id="new-member-design-extra" class="hidden" style="margin-top:6px">
+          <label style="display:flex;align-items:center;gap:8px;cursor:pointer;padding:9px 12px;background:var(--s2);border-radius:8px;font-size:13px">
+            <input type="checkbox" id="new-member-can-assign">
+            擁有網頁案分派權限（可將待分派案件指定給執案設計師）
+          </label>
         </div>
         <button class="action-btn btn-primary" style="margin-top:10px" onclick="addNewMember()">✅ 新增成員</button>
       </div>
@@ -1901,8 +1939,11 @@ function renderMembersPane(){
 function updateRoleOptions(){
   const dept=document.getElementById('new-member-dept')?.value;
   const roleEl=document.getElementById('new-member-role');
+  const extraEl=document.getElementById('new-member-design-extra');
   if(!roleEl||!dept)return;
   roleEl.innerHTML=(ROLE_OPTIONS[dept]||[]).map(r=>`<option value="${r.v}">${r.l}</option>`).join('');
+  // 只有設計部門才顯示分派權限
+  if(extraEl) extraEl.classList.toggle('hidden', dept!=='design');
 }
 function addNewMember(){
   const name=document.getElementById('new-member-name')?.value?.trim();
@@ -1913,13 +1954,64 @@ function addNewMember(){
   if(!id){toast('請填寫帳號ID','err');return;}
   if(!/^[a-z0-9_]+$/.test(id)){toast('帳號ID只能使用英文小寫、數字、底線','err');return;}
   if(MEMBERS[id]){toast('此帳號ID已存在','err');return;}
-  MEMBERS[id]={name,dept,role,active:true};
+  const canAssign=dept==='design'?!!(document.getElementById('new-member-can-assign')?.checked):false;
+  const adminLevelVal=document.getElementById('new-member-admin-level')?.value||'';
+  MEMBERS[id]={name,dept,role,active:true,
+    ...(adminLevelVal?{adminLevel:adminLevelVal}:{}),
+    ...(canAssign?{canAssign:true}:{})};
   PASSWORDS[id]='123456';
   saveMembers();savePasswords();
   document.getElementById('new-member-name').value='';
   document.getElementById('new-member-id').value='';
   renderMembersPane();
   toast(`${name} 已新增，預設密碼 123456`,'ok');
+}
+function openEditAdminLevel(id){
+  if(!MEMBERS[id])return;
+  const m=MEMBERS[id];
+  const cur=m.adminLevel||'';
+  document.getElementById('modal-root').innerHTML=`
+    <div class="modal-mask" onclick="if(event.target===this)closeModal()">
+      <div class="modal-box">
+        <div class="modal-title">⚙️ 修改管理層級</div>
+        <div style="font-size:12px;color:var(--t3);margin-bottom:14px">
+          成員：<strong>${m.name}</strong>（${DEPT_LABELS_M[m.dept]||m.dept}）
+        </div>
+        <div style="display:flex;flex-direction:column;gap:8px;margin-bottom:16px">
+          ${ADMIN_LEVEL_OPTIONS.map(o=>`
+            <label style="display:flex;align-items:center;gap:9px;cursor:pointer;padding:9px 12px;background:${cur===o.v?'#eff6ff':'var(--s2)'};border-radius:8px;border:1.5px solid ${cur===o.v?'var(--blue)':'transparent'}">
+              <input type="radio" name="edit-admin-level" value="${o.v}" ${cur===o.v?'checked':''}>
+              <div>
+                <div style="font-size:13px;font-weight:600">${o.l}</div>
+                <div style="font-size:11px;color:var(--t3)">${
+                  o.v===''?'只能看自己部門的分頁':
+                  o.v==='admin'?'可看所有分頁、管理設定、但不能刪人':
+                  '全部權限，包含刪除成員'
+                }</div>
+              </div>
+            </label>`).join('')}
+        </div>
+        <div style="display:flex;gap:8px">
+          <button class="action-btn" style="flex:1;background:var(--s3);color:var(--t2)" onclick="closeModal()">取消</button>
+          <button class="action-btn btn-primary" style="flex:1" onclick="submitEditAdminLevel('${id}')">確認修改</button>
+        </div>
+      </div>
+    </div>`;
+}
+function submitEditAdminLevel(id){
+  if(!MEMBERS[id])return;
+  const val=document.querySelector('input[name="edit-admin-level"]:checked')?.value;
+  if(val===undefined){closeModal();return;}
+  if(val==='') delete MEMBERS[id].adminLevel;
+  else MEMBERS[id].adminLevel=val;
+  saveMembers();closeModal();
+  renderMembersPane();
+  toast(`${MEMBERS[id].name} 管理層級已更新`,'ok');
+}
+function toggleCanAssign(id){
+  saveMembers();
+  renderMembersPane();
+  toast(`${MEMBERS[id].name} 分派權限已${MEMBERS[id].canAssign?'開啟':'關閉'}`,'ok');
 }
 function toggleMember(id,active){
   if(!MEMBERS[id])return;
