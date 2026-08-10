@@ -1014,16 +1014,46 @@ function renderMurphyAll(){
     <div class="sec-label">${caseStatusLabel(s)}（${arr.length}件）</div>
     ${arr.map(c=>{
       const acts=[];
-      if(c.status!=='void'&&c.status!=='done'){
+      if(c.status!=='void'){
+        // 所有非作廢案件都可以作廢（包含已結案）
         acts.push(`<button class="action-btn" style="background:#fee2e2;color:#991b1b;font-size:11px;padding:5px 10px" onclick="voidCase('${c.id}')">🚫 作廢</button>`);
       }
       if(c.status==='void'){
         acts.push(`<button class="action-btn btn-blue" style="font-size:11px;padding:5px 10px" onclick="restoreCase('${c.id}')">↩️ 還原</button>`);
-        acts.push(`<button class="action-btn" style="background:#7f1d1d;color:#fff;font-size:11px;padding:5px 10px" onclick="deleteCase('${c.id}')">🗑 永久刪除</button>`);
       }
+      // 所有案件都可永久刪除（Murphy 限定）
+      acts.push(`<button class="action-btn" style="background:#7f1d1d;color:#fff;font-size:11px;padding:5px 10px" onclick="deleteCase('${c.id}')">🗑 刪除</button>`);
       return caseCard(c, acts.join(''));
     }).join('')}
   `).join('');
+}
+
+function voidCase(cid){
+  const c=getCases().find(x=>x.id===cid);
+  if(!c)return;
+  if(!confirm(`確定要作廢「${c.client}」嗎？\n作廢後不計入獎金統計，但資料保留。`))return;
+  c.status='void';
+  saveDB();
+  toast(`${c.client} 已作廢`,'ok');
+  renderMurphyPane();
+}
+function restoreCase(cid){
+  const c=getCases().find(x=>x.id===cid);
+  if(!c)return;
+  c.status='pending_murphy';
+  saveDB();
+  toast(`${c.client} 已還原為待指派`,'ok');
+  renderMurphyPane();
+}
+function deleteCase(cid){
+  const cases=getCases();
+  const c=cases.find(x=>x.id===cid);
+  if(!c)return;
+  if(!confirm(`確定要【永久刪除】「${c.client}」嗎？\n刪除後無法復原。`))return;
+  cases.splice(cases.indexOf(c),1);
+  saveDB();
+  toast(`${c.client} 已永久刪除`,'ok');
+  renderMurphyPane();
 }
 
 function renderMurphyDesignExtra(){
