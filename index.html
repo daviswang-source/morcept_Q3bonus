@@ -464,6 +464,7 @@ function submitLogin(){
 }
 function loginAs(id){
   CUR_USER=id;_pendingLoginId=null;
+  sessionStorage.setItem('bonusUser',id);
   document.getElementById('login-page').style.display='none';
   document.getElementById('who-badge').textContent=MEMBERS[id]?.name||'';
   buildNav(id);
@@ -482,6 +483,7 @@ function getDefaultTab(id){
 }
 function logout(){
   CUR_USER=null;
+  sessionStorage.removeItem('bonusUser');
   document.getElementById('account-menu-dropdown').classList.add('hidden');
   document.getElementById('login-page').style.display='flex';
   backToLoginList();
@@ -636,6 +638,41 @@ function addCase(salesId, client, caseType, plan, seoAdd, customAdd, flatDesc, q
 function getCasesByStatus(status){return getCases().filter(c=>c.status===status);}
 function getCasesByPM(pmId){return getCases().filter(c=>c.pmId===pmId);}
 function getCasesByDesigner(designId){return getCases().filter(c=>c.designId===designId);}
+
+// ── PM 操作函式 ──
+function pmConfirmCase(cid){
+  const c=getCases().find(x=>x.id===cid);
+  if(!c)return;
+  c.status='in_progress';
+  saveDB();
+  toast(`${c.client} 已確認承接，進入執行中`,'ok');
+  renderCurrentTab();
+}
+function pmSendToDesign(cid){
+  const c=getCases().find(x=>x.id===cid);
+  if(!c)return;
+  if(c.caseType==='flat'){
+    // 平面案直接指派給 shanna
+    c.designId='shanna';
+    c.status='designing';
+    saveDB();
+    toast(`${c.client}（平面）已發送給 Shanna`,'ok');
+  } else {
+    // 網頁案進入待設計師分派
+    c.status='pending_design';
+    saveDB();
+    toast(`${c.client} 已發送給設計，等待分派`,'ok');
+  }
+  renderCurrentTab();
+}
+function pmConfirmDone(cid){
+  const c=getCases().find(x=>x.id===cid);
+  if(!c)return;
+  c.status='done';
+  saveDB();
+  toast(`${c.client} 已確認結案 🎉`,'ok');
+  renderCurrentTab();
+}
 function getCasesByDesignType(type){
   return getCases().filter(c=>c.caseType===type&&['pending_design','designing','done'].includes(c.status));
 }
@@ -671,7 +708,7 @@ function caseCard(c,actions=''){
 function renderSalesPane(){
   const who=CUR_USER;
   const adm=isAdmin(who);
-  const targets=adm?['annie','sandra']:(MEMBERS[who]?.dept==='sales'&&MEMBERS[who]?.role!=='assist'?[who]:[]);
+  const targets=adm?getSalesMain().map(m=>m.id):(MEMBERS[who]?.dept==='sales'&&MEMBERS[who]?.role!=='assist'?[who]:[]);
   let html='';
   html+=`<div class="notice">📅 ${seasonLabel()} · 業務填寫案件後，由 Murphy 指派 PM</div>`;
   targets.forEach(tid=>{html+=buildSalesBlock(tid,adm||who===tid);});
@@ -764,9 +801,16 @@ function buildNewCaseForm(tid){
         <div style="display:flex;flex-wrap:wrap;gap:5px">
           ${['單頁式網站','標準多頁','品牌型錄','多語型錄','購物車'].map(p=>
             `<label style="display:flex;align-items:center;gap:4px;font-size:12px;background:#fff;border:1px solid var(--border);border-radius:6px;padding:4px 8px;cursor:pointer">
-              <input type="radio" name="nc-plan-${tid}" value="${p}"> ${p}
+              <input type="checkbox" name="nc-plan-${tid}" value="${p}"> ${p}
             </label>`).join('')}
+          <label style="display:flex;align-items:center;gap:4px;font-size:12px;background:#fff;border:1px solid var(--border);border-radius:6px;padding:4px 8px;cursor:pointer">
+            <input type="checkbox" id="nc-plan-other-chk-${tid}" onchange="togglePlanOther('${tid}')"> 其他
+          </label>
         </div>
+      </div>
+      <div id="nc-plan-other-box-${tid}" style="display:none" class="field-row">
+        <span class="field-label"></span>
+        <input class="fi" type="text" id="nc-plan-other-${tid}" placeholder="請輸入其他方案說明" maxlength="60" style="flex:1">
       </div>
       <div class="field-row">
         <span class="field-label"></span>
@@ -798,6 +842,12 @@ function buildNewCaseForm(tid){
   </div>`;
 }
 
+function togglePlanOther(tid){
+  const chk=document.getElementById('nc-plan-other-chk-'+tid);
+  const box=document.getElementById('nc-plan-other-box-'+tid);
+  if(box) box.style.display=chk?.checked?'':'none';
+}
+
 function toggleCaseType(tid){
   const type=document.querySelector(`[name="nc-type-${tid}"]:checked`)?.value;
   document.getElementById('nc-web-opts-'+tid).style.display=type==='web'?'':'none';
@@ -808,7 +858,16 @@ function submitNewCase(tid){
   const client=document.getElementById('nc-client-'+tid)?.value?.trim();
   if(!client){toast('請填寫客戶名稱','err');return;}
   const type=document.querySelector(`[name="nc-type-${tid}"]:checked`)?.value||'web';
-  const plan=type==='web'?(document.querySelector(`[name="nc-plan-${tid}"]:checked`)?.value||''):'';
+  let plan='', planOther='';
+  if(type==='web'){
+    const checked=[...document.querySelectorAll(`[name="nc-plan-${tid}"]:checked`)].map(el=>el.value);
+    const otherChk=document.getElementById('nc-plan-other-chk-'+tid)?.checked;
+    if(otherChk){
+      planOther=document.getElementById('nc-plan-other-'+tid)?.value?.trim()||'';
+      if(planOther) checked.push('其他：'+planOther);
+    }
+    plan=checked.join('、');
+  }
   const seo=type==='web'?!!(document.getElementById('nc-seo-'+tid)?.checked):false;
   const custom=type==='web'?!!(document.getElementById('nc-custom-'+tid)?.checked):false;
   const flatDesc=type==='flat'?(document.getElementById('nc-flat-desc-'+tid)?.value||''):'';
@@ -2038,6 +2097,11 @@ async function initApp(){
   await Promise.all([loadDB(),loadCFG(),loadPasswords(),loadMembers()]);
   buildLoginList();
   watchDBChanges();
+  // 重新整理後自動還原登入狀態
+  const saved=sessionStorage.getItem('bonusUser');
+  if(saved&&MEMBERS[saved]&&MEMBERS[saved].active!==false){
+    loginAs(saved);
+  }
 }
 initApp();
 </script>
