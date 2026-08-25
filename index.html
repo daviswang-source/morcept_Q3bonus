@@ -1670,8 +1670,13 @@ function renderDesignPane(){
       <div class="card-body">
         ${flatCases.length===0?`<div style="font-size:12px;color:var(--t3);padding:8px 0">目前沒有平面案件</div>`
         :flatCases.map(c=>{
-          const acts=c.status==='designing'?`<button class="action-btn btn-green" onclick="designMarkDone('${c.id}')">🏁 標記完成（等PM確認）</button>`:'';
-          return caseCard(c,acts);
+          const canChange=adm||MEMBERS[who]?.canAssign;
+          const acts=[];
+          if(c.status==='designing'){
+            acts.push(`<button class="action-btn btn-green" onclick="designMarkDone('${c.id}')">🏁 標記完成（等PM確認）</button>`);
+            if(canChange) acts.push(`<button class="action-btn" style="background:var(--s3);color:var(--t2)" onclick="openChangeDesignerModal('${c.id}')">🔄 變更設計師</button>`);
+          }
+          return caseCard(c,acts.join(''));
         }).join('')}
         <div class="divider"></div>
         <div class="sec-label">部門整體結案率</div>
@@ -1734,10 +1739,15 @@ function renderDesignPane(){
               <div style="font-weight:700;color:var(--green);font-size:14px">${fmt(total)}</div>
             </div>
             ${myCases.length===0?`<div style="font-size:12px;color:var(--t3)">尚無分配案件</div>`
-            :myCases.map(c=>`<div style="display:flex;justify-content:space-between;align-items:center;padding:5px 8px;background:${c.status==='done'?'#dcfce7':'#fff'};border-radius:6px;margin-bottom:4px;font-size:12px">
-              <span><strong>${c.client}</strong> · ${fmt(caseTotal(c))}</span>
-              ${caseStatusPill(c.status)}
-            </div>`).join('')}
+            :myCases.map(c=>{
+              const canChange=adm||MEMBERS[who]?.canAssign;
+              const acts=[];
+              if(c.status==='designing'){
+                acts.push(`<button class="action-btn btn-green" onclick="designMarkDone('${c.id}')">🏁 標記完成（等PM確認）</button>`);
+                if(canChange) acts.push(`<button class="action-btn" style="background:var(--s3);color:var(--t2)" onclick="openChangeDesignerModal('${c.id}')">🔄 變更設計師</button>`);
+              }
+              return caseCard(c, acts.join(''));
+            }).join('')}
             <div style="font-size:11px;color:var(--t3);margin-top:6px">
               執案 ${fmt(bonus)}${r.teamBonus?` + 團隊績效 ${fmt(r.teamBonus)}`:''}
             </div>
@@ -1782,6 +1792,40 @@ function puttingAssign(cid){
   c.status='designing';
   saveDB();
   toast(`${c.client} 已分派給 ${MEMBERS[designId].name}`,'ok');
+  renderDesignPane();
+}
+function openChangeDesignerModal(cid){
+  const c=getCases().find(x=>x.id===cid);
+  if(!c)return;
+  const execMembers=getDesignExec();
+  document.getElementById('modal-root').innerHTML=`
+    <div class="modal-mask" onclick="if(event.target===this)closeModal()">
+      <div class="modal-box">
+        <div class="modal-title">🔄 變更主責設計師</div>
+        <div style="font-size:12px;color:var(--t3);margin-bottom:14px">
+          案件：<strong>${c.client}</strong><br>
+          目前：<strong>${MEMBERS[c.designId]?.name||'未指派'}</strong>
+        </div>
+        <select class="fi" id="change-designer-select" style="width:100%;margin-bottom:14px">
+          ${execMembers.map(m=>`<option value="${m.id}" ${c.designId===m.id?'selected':''}>${m.name}</option>`).join('')}
+        </select>
+        <div style="display:flex;gap:8px">
+          <button class="action-btn" style="flex:1;background:var(--s3);color:var(--t2)" onclick="closeModal()">取消</button>
+          <button class="action-btn btn-primary" style="flex:1" onclick="submitChangeDesigner('${cid}')">確認變更</button>
+        </div>
+      </div>
+    </div>`;
+}
+function submitChangeDesigner(cid){
+  const c=getCases().find(x=>x.id===cid);
+  if(!c)return;
+  const newId=document.getElementById('change-designer-select')?.value;
+  if(!newId){closeModal();return;}
+  const oldName=MEMBERS[c.designId]?.name||'未指派';
+  c.designId=newId;
+  saveDB();
+  closeModal();
+  toast(`${c.client} 主責設計師已從 ${oldName} 變更為 ${MEMBERS[newId].name}`,'ok');
   renderDesignPane();
 }
 function setBevicField(key,val){
