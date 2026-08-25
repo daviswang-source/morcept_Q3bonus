@@ -217,6 +217,7 @@ const DEFAULT_MEMBERS={
   davis:  {name:'Davis',  dept:'pm',     role:'member', adminLevel:'super', active:true},
   shanna: {name:'Shanna', dept:'pm',     role:'member', active:true},
   jessie: {name:'Jessie', dept:'maint',  role:'member', active:true},
+  max:    {name:'Max',    dept:'maint',  role:'member', active:true},
   putting:{name:'布丁',   dept:'design', role:'exec',   active:true, canAssign:true},
   rori:   {name:'RORI',   dept:'design', role:'exec',   active:true},
   mina:   {name:'MINA',   dept:'design', role:'exec',   active:true},
@@ -246,7 +247,7 @@ const CASE_STATUS={
 
 // ══ 設定（CFG）══
 let CFG={
-  pool:{sales:200000, pm:80000, maint:20000, design:100000},
+  pool:{sales:200000, pm:80000, maint:20000, maintNew:50000, design:100000},
   salesThresholds:[
     {level:'門檻一',   salesAmt:1800000, recogAmt:900000,  rate:0.015, bonus:13500, monthly:600000,  challenge:false},
     {level:'門檻二',   salesAmt:2100000, recogAmt:1050000, rate:0.035, bonus:36750, monthly:700000,  challenge:false},
@@ -612,24 +613,16 @@ function seasonLabel(){
 // ══════════════════════
 // 案件核心邏輯
 // ══════════════════════
-function addCase(salesId, client, caseType, plan, seoAdd, customAdd, flatDesc, quote, deposit){
+function addCase(salesId, client, caseType, plan, seoAdd, customAdd, flatDesc, quote, outsource, deposit){
   const cases=getCases();
   const c={
-    id:uid(),
-    salesId,
-    client,
-    caseType,
-    plan,
-    seoAdd,    // bool
-    customAdd, // bool（客製附加）
-    flatDesc,
+    id:uid(), salesId, client, caseType, plan, seoAdd, customAdd, flatDesc,
     quote:+quote||0,
+    outsource:+outsource||0,  // 外包金額（客製時填入）
     deposit:+deposit||0,
-    pmId:null,
-    designId:null,
+    pmId:null, designId:null,
     status:'pending_murphy',
-    createdAt:Date.now(),
-    pmNote:'',
+    createdAt:Date.now(), pmNote:'',
   };
   cases.push(c);
   saveDB();
@@ -683,16 +676,18 @@ function caseStatusPill(s){
   return `<span class="pill ${cls[s]||'pill-gray'}">${caseStatusLabel(s)}</span>`;
 }
 function caseCard(c,actions=''){
+  const total=(+c.quote||0)+(+c.outsource||0);
   return `<div class="case-card">
     <div class="case-card-hdr">
       <div>
         <div style="font-weight:700;font-size:13px;margin-bottom:3px">${c.client||'（未填客戶）'}</div>
         <div class="case-meta">
-          ${c.caseType==='web'?`🌐 網頁・${c.plan||'未選方案'}${c.seoAdd?' +SEO':''}${c.customAdd?' +客製':''}`:`🎨 平面${c.flatDesc?' · '+c.flatDesc:''}`}
-          &nbsp;·&nbsp; 報價 ${fmt(c.quote)} &nbsp;·&nbsp; 訂金 ${fmt(c.deposit)}
-          ${c.pmId?` &nbsp;·&nbsp; PM: ${MEMBERS[c.pmId]?.name}`:''}
+          ${c.caseType==='web'?`🌐 網頁・${c.plan||'未選方案'}${c.seoAdd?' +SEO':''}${c.customAdd?' +客製':''}`:`🎨 平面${c.flatDesc?' · '+c.flatDesc:''}${c.customAdd?' +客製':''}`}
+          &nbsp;·&nbsp; ${c.outsource?`<strong>${fmt(total)}</strong>（報價 ${fmt(c.quote)} + 外包 ${fmt(c.outsource)}）`:fmt(c.quote)}
+          &nbsp;·&nbsp; 訂金 ${fmt(c.deposit)}
+          ${c.pmId?` &nbsp;·&nbsp; ${MEMBERS[c.pmId]?.dept==='maint'?'維運':'PM'}: ${MEMBERS[c.pmId]?.name}`:''}
           ${c.designId?` &nbsp;·&nbsp; 設計: ${MEMBERS[c.designId]?.name}`:''}
-          ${c.status==='done'?` &nbsp;·&nbsp; <strong style="color:var(--green)">結案金額 ${fmt(c.quote)}</strong>`:''}
+          ${c.status==='done'?` &nbsp;·&nbsp; <strong style="color:var(--green)">結案 ${fmt(total)}</strong>`:''}
         </div>
       </div>
       ${caseStatusPill(c.status)}
@@ -739,7 +734,7 @@ function buildSalesBlock(tid,editable){
       <div class="divider"></div>`:''}
       <div class="sec-label">本季案件（${myCases.length} 件）</div>
       ${myCases.length?myCases.map(c=>`<div style="display:flex;justify-content:space-between;align-items:center;padding:7px 10px;background:var(--s2);border-radius:7px;margin-bottom:5px;font-size:12px">
-        <div><strong>${c.client}</strong> &nbsp; ${c.caseType==='web'?c.plan||'未選方案':'平面'}${c.seoAdd?' +SEO':''}${c.customAdd?' +客製':''} &nbsp; ${fmt(c.quote)}</div>
+        <div><strong>${c.client}</strong> &nbsp; ${c.caseType==='web'?c.plan||'未選方案':'平面'}${c.seoAdd?' +SEO':''}${c.customAdd?' +客製':''} &nbsp; ${c.outsource?`<strong>${fmt((+c.quote||0)+(+c.outsource||0))}</strong>（報價${fmt(c.quote)}+外包${fmt(c.outsource)}）`:fmt(c.quote)}</div>
         <div style="display:flex;align-items:center;gap:6px">${caseStatusPill(c.status)} ${fmt(c.deposit)} 訂金</div>
       </div>`).join(''):`<div style="font-size:12px;color:var(--t3);padding:8px 0">尚無案件</div>`}
       <div class="divider"></div>
@@ -818,7 +813,7 @@ function buildNewCaseForm(tid){
           <input type="checkbox" id="nc-seo-${tid}"> SEO 優化（附加）
         </label>
         <label style="display:flex;align-items:center;gap:5px;font-size:12px;cursor:pointer;margin-left:8px">
-          <input type="checkbox" id="nc-custom-${tid}"> 客製（附加）
+          <input type="checkbox" id="nc-custom-web-${tid}" onchange="toggleOutsource('${tid}','web')"> 客製（附加）
         </label>
       </div>
     </div>
@@ -827,11 +822,22 @@ function buildNewCaseForm(tid){
         <span class="field-label">平面品項</span>
         <input class="fi" type="text" id="nc-flat-desc-${tid}" placeholder="例：資料夾、名片、DM" maxlength="60" style="flex:1">
       </div>
+      <div class="field-row">
+        <span class="field-label"></span>
+        <label style="display:flex;align-items:center;gap:5px;font-size:12px;cursor:pointer">
+          <input type="checkbox" id="nc-custom-flat-${tid}" onchange="toggleOutsource('${tid}','flat')"> 客製（附加）
+        </label>
+      </div>
     </div>
     <div class="field-row">
       <span class="field-label">報價金額</span>
       <input class="fi fi-md" type="number" id="nc-quote-${tid}" min="0" placeholder="0">
       <span class="unit">元</span>
+    </div>
+    <div id="nc-outsource-row-${tid}" style="display:none" class="field-row">
+      <span class="field-label">外包金額</span>
+      <input class="fi fi-md" type="number" id="nc-outsource-${tid}" min="0" placeholder="0">
+      <span class="unit">元 <span style="font-size:11px;color:var(--t3)">（計入案件總額，不影響業務獎金）</span></span>
     </div>
     <div class="field-row">
       <span class="field-label">訂金收款</span>
@@ -847,34 +853,45 @@ function togglePlanOther(tid){
   const box=document.getElementById('nc-plan-other-box-'+tid);
   if(box) box.style.display=chk?.checked?'':'none';
 }
-
 function toggleCaseType(tid){
   const type=document.querySelector(`[name="nc-type-${tid}"]:checked`)?.value;
   document.getElementById('nc-web-opts-'+tid).style.display=type==='web'?'':'none';
   document.getElementById('nc-flat-opts-'+tid).style.display=type==='flat'?'':'none';
+  // 切換時重置外包欄位
+  const row=document.getElementById('nc-outsource-row-'+tid);
+  if(row) row.style.display='none';
+}
+function toggleOutsource(tid,caseType){
+  const chkId=caseType==='web'?`nc-custom-web-${tid}`:`nc-custom-flat-${tid}`;
+  const chk=document.getElementById(chkId);
+  const row=document.getElementById('nc-outsource-row-'+tid);
+  if(row) row.style.display=chk?.checked?'':'none';
 }
 
 function submitNewCase(tid){
   const client=document.getElementById('nc-client-'+tid)?.value?.trim();
   if(!client){toast('請填寫客戶名稱','err');return;}
   const type=document.querySelector(`[name="nc-type-${tid}"]:checked`)?.value||'web';
-  let plan='', planOther='';
+  let plan='';
+  const customWeb=type==='web'?!!(document.getElementById('nc-custom-web-'+tid)?.checked):false;
+  const customFlat=type==='flat'?!!(document.getElementById('nc-custom-flat-'+tid)?.checked):false;
+  const customAdd=customWeb||customFlat;
   if(type==='web'){
     const checked=[...document.querySelectorAll(`[name="nc-plan-${tid}"]:checked`)].map(el=>el.value);
     const otherChk=document.getElementById('nc-plan-other-chk-'+tid)?.checked;
     if(otherChk){
-      planOther=document.getElementById('nc-plan-other-'+tid)?.value?.trim()||'';
+      const planOther=document.getElementById('nc-plan-other-'+tid)?.value?.trim()||'';
       if(planOther) checked.push('其他：'+planOther);
     }
     plan=checked.join('、');
   }
   const seo=type==='web'?!!(document.getElementById('nc-seo-'+tid)?.checked):false;
-  const custom=type==='web'?!!(document.getElementById('nc-custom-'+tid)?.checked):false;
   const flatDesc=type==='flat'?(document.getElementById('nc-flat-desc-'+tid)?.value||''):'';
   const quote=document.getElementById('nc-quote-'+tid)?.value||0;
+  const outsource=customAdd?(document.getElementById('nc-outsource-'+tid)?.value||0):0;
   const deposit=document.getElementById('nc-deposit-'+tid)?.value||0;
-  addCase(tid,client,type,plan,seo,custom,flatDesc,quote,deposit);
-  toast(`${client} 已送出，等待 Murphy 指派 PM`,'info');
+  addCase(tid,client,type,plan,seo,customAdd,flatDesc,quote,outsource,deposit);
+  toast(`${client} 已送出，等待指派`,'info');
   renderSalesPane();
 }
 
@@ -1024,16 +1041,25 @@ function renderMurphyAssign(){
   const el=document.getElementById('murphy-sub');
   if(!el)return;
   const pmMembers=getPMMembers();
+  const maintMembers=getMaintMembers();
+  const allAssignable=[
+    ...pmMembers.map(m=>({...m,group:'pm'})),
+    ...maintMembers.map(m=>({...m,group:'maint'})),
+  ];
 
   el.innerHTML=`
-    <div class="notice">📊 專案部依「結案金額佔比」分潤，指派時不需設定難度係數</div>
+    <div class="notice">📊 專案部依「結案金額佔比」分潤 · 維運新案獨立獎金池</div>
     ${pending.length===0?`<div class="card"><div class="card-body" style="text-align:center;padding:24px;color:var(--t3)">目前沒有待指派的案件</div></div>`
     :pending.map(c=>{
       const pmAmts=pmMembers.map(m=>{
         const r=calcPMShare(m.id);
         return `${m.name}(${fmt(r.doneAmt)})`;
       }).join('・');
-
+      const maintAmts=maintMembers.map(m=>{
+        const r=calcMaintNewCaseShare(m.id);
+        return `${m.name}(${fmt(r.doneAmt)})`;
+      }).join('・');
+      const total=caseTotal(c);
       return `<div class="card">
         <div class="card-body">
           <div class="case-card-hdr" style="margin-bottom:10px">
@@ -1041,18 +1067,21 @@ function renderMurphyAssign(){
               <div style="font-weight:700;font-size:14px;margin-bottom:4px">${c.client}</div>
               <div class="case-meta">
                 業務：${MEMBERS[c.salesId]?.name} &nbsp;·&nbsp;
-                ${c.caseType==='web'?`🌐 ${c.plan||'未選'}${c.seoAdd?' +SEO':''}${c.customAdd?' +客製':''}`:`🎨 平面${c.flatDesc?' · '+c.flatDesc:''}`}
-                &nbsp;·&nbsp; 報價 ${fmt(c.quote)} &nbsp;·&nbsp; 訂金 ${fmt(c.deposit)}
+                ${c.caseType==='web'?`🌐 ${c.plan||'未選'}${c.seoAdd?' +SEO':''}${c.customAdd?' +客製':''}`:`🎨 平面${c.flatDesc?' · '+c.flatDesc:''}${c.customAdd?' +客製':''}`}
+                &nbsp;·&nbsp; ${c.outsource?`<strong>${fmt(total)}</strong>（報價${fmt(c.quote)}+外包${fmt(c.outsource)}）`:fmt(c.quote)}
+                &nbsp;·&nbsp; 訂金 ${fmt(c.deposit)}
               </div>
-              <div style="font-size:11px;color:var(--t3);margin-top:4px">各PM本季已結案金額：${pmAmts}</div>
+              ${pmMembers.length?`<div style="font-size:11px;color:var(--t3);margin-top:3px">PM 已結案：${pmAmts}</div>`:''}
+              ${maintMembers.length?`<div style="font-size:11px;color:var(--t3);margin-top:2px">維運 已結案：${maintAmts}</div>`:''}
             </div>
             <span class="pill pill-orange">待指派</span>
           </div>
           <div class="field-row">
-            <span class="field-label">指派給 PM</span>
+            <span class="field-label">指派給</span>
             <select class="fi fi-md" id="assign-pm-${c.id}">
-              <option value="">— 選擇 PM —</option>
-              ${pmMembers.map(m=>`<option value="${m.id}">${m.name}</option>`).join('')}
+              <option value="">— 選擇人員 —</option>
+              ${pmMembers.length?`<optgroup label="📋 專案 PM">${pmMembers.map(m=>`<option value="${m.id}">${m.name}</option>`).join('')}</optgroup>`:''}
+              ${maintMembers.length?`<optgroup label="🔧 維運">${maintMembers.map(m=>`<option value="${m.id}">${m.name}</option>`).join('')}</optgroup>`:''}
             </select>
             <button class="action-btn btn-primary" onclick="murphyAssignPM('${c.id}')">✅ 指派</button>
           </div>
@@ -1211,15 +1240,29 @@ function buildPMCollabBlock(adm){
   </div>`;
 }
 function setPMCollabField(key,val){const d=getPMCollab();d[key]=val;saveDB();renderPMPane();}
+function caseTotal(c){return (+c.quote||0)+(+c.outsource||0);}
+
 function calcPMShare(tid){
   const pmIds=getPMMembers().map(m=>m.id);
   const doneCases=getCasesByPM(tid).filter(c=>c.status==='done');
-  const doneAmt=doneCases.reduce((s,c)=>s+(+c.quote||0),0);
+  const doneAmt=doneCases.reduce((s,c)=>s+caseTotal(c),0);
   const doneCount=doneCases.length;
   const totalAmt=pmIds.reduce((sum,id)=>
-    sum+getCasesByPM(id).filter(c=>c.status==='done').reduce((s,c)=>s+(+c.quote||0),0),0);
+    sum+getCasesByPM(id).filter(c=>c.status==='done').reduce((s,c)=>s+caseTotal(c),0),0);
   const bonus=totalAmt>0?Math.round(doneAmt/totalAmt*CFG.pool.pm):0;
   return {doneAmt,doneCount,totalAmt,bonus};
+}
+
+function calcMaintNewCaseShare(mid){
+  const maintIds=getMaintMembers().map(m=>m.id);
+  const doneCases=getCasesByPM(mid).filter(c=>c.status==='done');
+  const doneAmt=doneCases.reduce((s,c)=>s+caseTotal(c),0);
+  const doneCount=doneCases.length;
+  const totalAmt=maintIds.reduce((sum,id)=>
+    sum+getCasesByPM(id).filter(c=>c.status==='done').reduce((s,c)=>s+caseTotal(c),0),0);
+  const pool=CFG.pool.maintNew||0;
+  const bonus=totalAmt>0?Math.round(doneAmt/totalAmt*pool):0;
+  return {doneAmt,doneCount,totalAmt,bonus,pool};
 }
 function calcPMCollabBonus(){
   const d=getPMCollab();
@@ -1314,60 +1357,136 @@ function renderPMScore(targets,adm,who){
 function renderMaintPane(){
   const who=CUR_USER;
   const adm=isAdmin(who);
-  const maintPeople=getMaintMembers();
-  const allBonus=calcMaintBonus();
-  const mode=allBonus.mode;
-  const pool=allBonus.pool;
-  const threshold=CFG.maintRenewThreshold||90;
-
-  let html=`
-    <div class="notice">加權續約率 ≥ ${threshold}% → 達標發放 · 計算：管理主機總數 × ${threshold}% = 到期需續約數 · 多年續率：1年×1.0、3年×1.2、5年以上×1.5</div>
-    ${adm?`<div class="card" style="margin-bottom:12px">
-      <div class="card-hdr"><div class="card-title">⚙️ 分配模式設定</div></div>
-      <div class="card-body">
-        <div style="display:flex;gap:16px;flex-wrap:wrap">
-          <label style="display:flex;align-items:center;gap:7px;cursor:pointer;font-size:13px">
-            <input type="radio" name="maint-mode" value="split" ${mode==='split'?'checked':''} onchange="CFG.maintMode='split';saveCFG();renderMaintPane()">
-            平分（獎金池 ÷ 人數，每人達標才領）
-          </label>
-          <label style="display:flex;align-items:center;gap:7px;cursor:pointer;font-size:13px">
-            <input type="radio" name="maint-mode" value="individual" ${mode==='individual'?'checked':''} onchange="CFG.maintMode='individual';saveCFG();renderMaintPane()">
-            各自獨立（每人達標各領 ${fmt(pool)}，總支出隨人數）
-          </label>
-        </div>
+  const maintSubTab=window._maintSubTab||'cases';
+  document.getElementById('maint-content').innerHTML=`
+    <div class="sub-nav">
+      <button class="sub-tab ${maintSubTab==='cases'?'on':''}" onclick="window._maintSubTab='cases';renderMaintPane()">📋 案件列表</button>
+      <button class="sub-tab ${maintSubTab==='score'?'on':''}" onclick="window._maintSubTab='score';renderMaintPane()">📊 結案佔比</button>
+      <button class="sub-tab ${maintSubTab==='renew'?'on':''}" onclick="window._maintSubTab='renew';renderMaintPane()">🔧 續約率</button>
+    </div>
+    <div id="maint-sub"></div>`;
+  if(maintSubTab==='cases') renderMaintCases(who,adm);
+  else if(maintSubTab==='score') renderMaintScore(who,adm);
+  else renderMaintRenew(who,adm);
+}
+function renderMaintCases(who,adm){
+  const el=document.getElementById('maint-sub');if(!el)return;
+  const maintMembers=getMaintMembers();
+  const targets=adm?maintMembers.map(m=>m.id):(MEMBERS[who]?.dept==='maint'?[who]:[]);
+  let html='';
+  targets.forEach(tid=>{
+    const myCases=getCasesByPM(tid).filter(c=>c.status!=='void');
+    const r=calcMaintNewCaseShare(tid);
+    html+=`<div class="card">
+      <div class="card-hdr"><div class="card-title">${MEMBERS[tid].name}</div>
+        <span class="pill pill-green">已結案 ${fmt(r.doneAmt)}</span>
       </div>
+      <div class="card-body">
+        ${myCases.length===0?`<div style="font-size:12px;color:var(--t3);padding:8px 0">目前沒有指派案件</div>`
+        :myCases.map(c=>{
+          const acts=[];
+          if(c.status==='pending_pm'&&(adm||who===tid))
+            acts.push(`<button class="action-btn btn-blue" onclick="pmConfirmCase('${c.id}')">✅ 確認承接</button>`);
+          if(c.status==='in_progress'&&(adm||who===tid))
+            acts.push(`<button class="action-btn btn-orange" onclick="pmSendToDesign('${c.id}')">🎨 發送給設計</button>`);
+          if(c.status==='designing'&&(adm||who===tid))
+            acts.push(`<button class="action-btn btn-green" onclick="pmConfirmDone('${c.id}')">🏁 確認結案</button>`);
+          return caseCard(c,acts.join(''));
+        }).join('')}
+      </div>
+    </div>`;
+  });
+  el.innerHTML=html||`<div class="card"><div class="card-body" style="text-align:center;padding:24px;color:var(--t3)">目前沒有指派案件</div></div>`;
+}
+function renderMaintScore(who,adm){
+  const el=document.getElementById('maint-sub');if(!el)return;
+  const maintMembers=getMaintMembers();
+  const allShares=maintMembers.map(m=>({id:m.id,...calcMaintNewCaseShare(m.id)}));
+  const totalAmt=allShares.reduce((s,x)=>s+x.doneAmt,0);
+  const pool=CFG.pool.maintNew||0;
+  let html=`
+    <div class="notice">個人實領 = 個人結案金額 ÷ 全員結案金額總和 × ${fmt(pool)}（維運新案獨立獎金池）</div>
+    <div class="card" style="margin-bottom:12px">
+      <div class="card-hdr"><div class="card-title">📊 結案金額佔比總覽</div></div>
+      <div class="card-body" style="padding:0">
+        <table class="task-table">
+          <thead><tr><th>人員</th><th>結案金額</th><th>佔比</th><th>預估獎金</th></tr></thead>
+          <tbody>
+            ${allShares.map(s=>`<tr>
+              <td><strong>${MEMBERS[s.id]?.name}</strong></td><td>${fmt(s.doneAmt)}</td>
+              <td>${totalAmt>0?Math.round(s.doneAmt/totalAmt*100):0}%</td>
+              <td><strong style="color:var(--green)">${fmt(s.bonus)}</strong></td>
+            </tr>`).join('')}
+          </tbody>
+        </table>
+      </div>
+    </div>`;
+  const targets=adm?maintMembers.map(m=>m.id):(MEMBERS[who]?.dept==='maint'?[who]:[]);
+  targets.forEach(tid=>{
+    const r=calcMaintNewCaseShare(tid);
+    const pct=totalAmt>0?Math.round(r.doneAmt/totalAmt*100):0;
+    html+=`<div class="card">
+      <div class="card-hdr"><div class="card-title">${MEMBERS[tid]?.name}</div>
+        <span class="pill pill-green">${pct}% 佔比</span>
+      </div>
+      <div class="card-body">
+        <div class="g3" style="margin-bottom:12px">
+          <div class="mini-stat"><div class="mini-stat-val" style="color:var(--blue)">${fmt(r.doneAmt)}</div><div class="mini-stat-lbl">本季結案（${r.doneCount}件）</div></div>
+          <div class="mini-stat"><div class="mini-stat-val" style="color:var(--t2)">${pct}%</div><div class="mini-stat-lbl">佔比</div></div>
+          <div class="mini-stat"><div class="mini-stat-val" style="color:var(--green)">${fmt(r.bonus)}</div><div class="mini-stat-lbl">預估獎金</div></div>
+        </div>
+        <div class="result-bar"><div>
+          <div class="result-label">預估獎金</div>
+          <div class="result-amount">${fmt(r.bonus)}</div>
+          <div class="result-detail">結案 ${fmt(r.doneAmt)} ÷ 總 ${fmt(totalAmt)} × ${fmt(pool)}</div>
+        </div></div>
+      </div>
+    </div>`;
+  });
+  el.innerHTML=html;
+}
+function renderMaintRenew(who,adm){
+  const el=document.getElementById('maint-sub');if(!el)return;
+  const allBonus=calcMaintBonus();
+  const mode=allBonus.mode, pool=allBonus.pool;
+  const threshold=CFG.maintRenewThreshold||90;
+  let html=`
+    <div class="notice">加權續約率 ≥ ${threshold}% → 達標發放 · 1年×1.0、3年×1.2、5年以上×1.5</div>
+    ${adm?`<div class="card" style="margin-bottom:12px">
+      <div class="card-hdr"><div class="card-title">⚙️ 分配模式</div></div>
+      <div class="card-body"><div style="display:flex;gap:16px;flex-wrap:wrap">
+        <label style="display:flex;align-items:center;gap:7px;cursor:pointer;font-size:13px">
+          <input type="radio" name="maint-mode" value="split" ${mode==='split'?'checked':''} onchange="CFG.maintMode='split';saveCFG();renderMaintPane()">
+          平分（獎金池 ÷ 人數，達標才領）
+        </label>
+        <label style="display:flex;align-items:center;gap:7px;cursor:pointer;font-size:13px">
+          <input type="radio" name="maint-mode" value="individual" ${mode==='individual'?'checked':''} onchange="CFG.maintMode='individual';saveCFG();renderMaintPane()">
+          各自獨立（每人達標各領 ${fmt(pool)}）
+        </label>
+      </div></div>
     </div>`:''}`;
-
-  // 每個維運人員一張卡片
   allBonus.results.forEach(r=>{
     const editable=(who===r.id||adm);
     const barColor=r.reached?'var(--green)':'var(--orange)';
     html+=`<div class="card">
-      <div class="card-hdr">
-        <div class="card-title">${r.name} · 加權續約率</div>
+      <div class="card-hdr"><div class="card-title">${r.name} · 加權續約率</div>
         <span class="pill ${r.reached?'pill-green':'pill-orange'}">${r.weightedRate}% ${r.reached?'✅ 達標':'未達標'}</span>
       </div>
       <div class="card-body">
-        <div class="field-row">
-          <span class="field-label">管理主機總數</span>
+        <div class="field-row"><span class="field-label">管理主機總數</span>
           <input class="fi fi-sm" type="number" min="0" value="${r.total||''}" placeholder="0"
             oninput="setMaintField('total',+this.value,'${r.id}')" ${editable?'':'disabled'}>
-          <span class="unit">台</span>
-        </div>
-        <div class="field-row">
-          <span class="field-label">不可抗力排除</span>
+          <span class="unit">台</span></div>
+        <div class="field-row"><span class="field-label">不可抗力排除</span>
           <input class="fi fi-sm" type="number" min="0" value="${r.excl||''}" placeholder="0"
             oninput="setMaintField('exclude',+this.value,'${r.id}')" ${editable?'':'disabled'}>
-          <span class="unit">台</span><span style="font-size:11px;color:var(--t3)">客戶結束營業等</span>
-        </div>
+          <span class="unit">台</span></div>
         <div class="sec-label">本季續約件數</div>
         ${[['續約 1 年','renew1','× 1.0'],['續約 3 年','renew3','× 1.2'],['續約 5 年以上','renew5','× 1.5']].map(([lbl,key,mult])=>`
-        <div class="field-row">
-          <span class="field-label">${lbl}</span>
-          <input class="fi fi-sm" type="number" min="0" value="${r[key.replace('renew','renew')]||getMaintData(r.id)[key]||''}" placeholder="0"
+        <div class="field-row"><span class="field-label">${lbl}</span>
+          <input class="fi fi-sm" type="number" min="0" value="${getMaintData(r.id)[key]||''}" placeholder="0"
             oninput="setMaintField('${key}',+this.value,'${r.id}')" ${editable?'':'disabled'}>
-          <span class="unit">台 &nbsp;${mult}</span>
-        </div>`).join('')}
+          <span class="unit">台 ${mult}</span></div>`).join('')}
         <div style="position:relative;height:9px;background:var(--s3);border-radius:5px;margin:12px 0 20px">
           <div style="height:100%;width:${Math.min(100,r.weightedRate)}%;background:${barColor};border-radius:5px;transition:.4s"></div>
           <div style="position:absolute;left:${threshold}%;top:-5px;transform:translateX(-50%)">
@@ -1380,21 +1499,17 @@ function renderMaintPane(){
           <div class="mini-stat"><div class="mini-stat-val" style="color:var(--green)">${r.weightedRenewed}</div><div class="mini-stat-lbl">加權實際續約數</div></div>
           <div class="mini-stat"><div class="mini-stat-val" style="color:${barColor}">${r.weightedRate}%</div><div class="mini-stat-lbl">加權續約率</div></div>
         </div>
-        <div class="result-bar">
-          <div><div class="result-label">預估可領獎金</div>
+        <div class="result-bar"><div>
+          <div class="result-label">預估可領獎金</div>
           <div class="result-amount">${fmt(r.bonus)}</div>
-          <div class="result-detail">${r.reached?'達標':'未達標'} · ${mode==='split'?'平分模式':'各自獨立'}</div></div>
-        </div>
+          <div class="result-detail">${r.reached?'達標':'未達標'} · ${mode==='split'?'平分':'各自獨立'}</div>
+        </div></div>
       </div>
     </div>`;
   });
-
-  if(maintPeople.length===0){
-    html+=`<div class="card"><div class="card-body" style="text-align:center;padding:24px;color:var(--t3)">目前沒有維運人員</div></div>`;
-  }
-
-  document.getElementById('maint-content').innerHTML=html;
+  el.innerHTML=html;
 }
+
 function setMaintField(key,val,mid){
   const id=mid||getMaintMembers()[0]?.id||'jessie';
   const d=getMaintData(id);d[key]=val;saveDB();renderMaintPane();
@@ -1620,7 +1735,7 @@ function renderDesignPane(){
             </div>
             ${myCases.length===0?`<div style="font-size:12px;color:var(--t3)">尚無分配案件</div>`
             :myCases.map(c=>`<div style="display:flex;justify-content:space-between;align-items:center;padding:5px 8px;background:${c.status==='done'?'#dcfce7':'#fff'};border-radius:6px;margin-bottom:4px;font-size:12px">
-              <span><strong>${c.client}</strong> · ${fmt(c.quote)}</span>
+              <span><strong>${c.client}</strong> · ${fmt(caseTotal(c))}</span>
               ${caseStatusPill(c.status)}
             </div>`).join('')}
             <div style="font-size:11px;color:var(--t3);margin-top:6px">
@@ -1692,7 +1807,7 @@ function calcDesignBonus(){
   const execAmts={},execBonus={};
   let totalAmt=0;
   execMembers.forEach(m=>{
-    const amt=getCasesByDesigner(m.id).filter(c=>c.status==='done').reduce((s,c)=>s+(+c.quote||0),0);
+    const amt=getCasesByDesigner(m.id).filter(c=>c.status==='done').reduce((s,c)=>s+caseTotal(c),0);
     execAmts[m.id]=amt;totalAmt+=amt;
   });
   execMembers.forEach(m=>{execBonus[m.id]=totalAmt>0?Math.round(execAmts[m.id]/totalAmt*execPool):0;});
@@ -1766,7 +1881,7 @@ function renderAdminSummary(){
   // PM 結案佔比
   const pmShares=pmMembers.map(m=>{
     const cases=getCasesByPM(m.id).filter(c=>c.status==='done');
-    const doneAmt=cases.reduce((s,c)=>s+(+c.quote||0),0);
+    const doneAmt=cases.reduce((s,c)=>s+caseTotal(c),0);
     return {...m,doneAmt};
   });
   const pmTotal=pmShares.reduce((s,m)=>s+m.doneAmt,0);
@@ -1847,7 +1962,7 @@ function renderAdminPool(){
         <div class="notice">修改後點儲存即時更新</div>
         <div class="sec-label">各部門獎金池</div>
         <div class="g2">
-          ${[['業務部總池','pool.sales'],['專案部總池','pool.pm'],['維運部總池','pool.maint'],['設計部總池','pool.design']].map(([lbl,key])=>`
+          ${[['業務部總池','pool.sales'],['專案部總池','pool.pm'],['維運部總池（續約率）','pool.maint'],['維運新案獎金池','pool.maintNew'],['設計部總池','pool.design']].map(([lbl,key])=>`
           <div class="field-row">
             <span class="field-label" style="min-width:130px">${lbl}</span>
             <input class="fi fi-sm" type="number" value="${getNestedCFG(key)||0}"
