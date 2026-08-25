@@ -734,8 +734,18 @@ function buildSalesBlock(tid,editable){
       <div class="divider"></div>`:''}
       <div class="sec-label">本季案件（${myCases.length} 件）</div>
       ${myCases.length?myCases.map(c=>`<div style="display:flex;justify-content:space-between;align-items:center;padding:7px 10px;background:var(--s2);border-radius:7px;margin-bottom:5px;font-size:12px">
-        <div><strong>${c.client}</strong> &nbsp; ${c.caseType==='web'?c.plan||'未選方案':'平面'}${c.seoAdd?' +SEO':''}${c.customAdd?' +客製':''} &nbsp; ${c.outsource?`<strong>${fmt((+c.quote||0)+(+c.outsource||0))}</strong>（報價${fmt(c.quote)}+外包${fmt(c.outsource)}）`:fmt(c.quote)}</div>
-        <div style="display:flex;align-items:center;gap:6px">${caseStatusPill(c.status)} ${fmt(c.deposit)} 訂金</div>
+        <div style="flex:1;min-width:0">
+          <strong>${c.client}</strong> &nbsp;
+          ${c.caseType==='web'?c.plan||'未選方案':'平面'}${c.seoAdd?' +SEO':''}${c.customAdd?' +客製':''} &nbsp;
+          ${c.outsource?`<strong>${fmt((+c.quote||0)+(+c.outsource||0))}</strong>（報價${fmt(c.quote)}+外包${fmt(c.outsource)}）`:fmt(c.quote)}
+        </div>
+        <div style="display:flex;align-items:center;gap:6px;flex-shrink:0">
+          ${caseStatusPill(c.status)} ${fmt(c.deposit)} 訂金
+          <button onclick="openEditCaseModal('${c.id}')" title="編輯案件"
+            style="background:none;border:none;cursor:pointer;padding:3px 5px;color:var(--t3);font-size:14px;line-height:1;border-radius:5px;transition:.15s"
+            onmouseover="this.style.background='var(--s3)';this.style.color='var(--navy)'"
+            onmouseout="this.style.background='none';this.style.color='var(--t3)'">✏️</button>
+        </div>
       </div>`).join(''):`<div style="font-size:12px;color:var(--t3);padding:8px 0">尚無案件</div>`}
       <div class="divider"></div>
       <div class="sec-label">季進案業績達標進度</div>
@@ -1794,10 +1804,65 @@ function puttingAssign(cid){
   toast(`${c.client} 已分派給 ${MEMBERS[designId].name}`,'ok');
   renderDesignPane();
 }
-function openChangeDesignerModal(cid){
+function openEditCaseModal(cid){
   const c=getCases().find(x=>x.id===cid);
   if(!c)return;
-  const execMembers=getDesignExec();
+  const total=(+c.quote||0)+(+c.outsource||0);
+  document.getElementById('modal-root').innerHTML=`
+    <div class="modal-mask" onclick="if(event.target===this)closeModal()">
+      <div class="modal-box" style="width:360px">
+        <div class="modal-title">✏️ 編輯案件</div>
+        <div style="font-size:11px;color:var(--t3);margin-bottom:12px">修改後所有分頁（PM、維運、設計）會同步更新</div>
+        <div class="field-row" style="margin-bottom:10px">
+          <span class="field-label" style="min-width:70px">客戶名稱</span>
+          <input class="fi" id="edit-client" type="text" value="${c.client||''}" maxlength="60" style="flex:1">
+        </div>
+        <div class="field-row" style="margin-bottom:10px">
+          <span class="field-label" style="min-width:70px">報價金額</span>
+          <input class="fi fi-md" id="edit-quote" type="number" min="0" value="${c.quote||0}">
+          <span class="unit">元</span>
+        </div>
+        ${c.customAdd?`<div class="field-row" style="margin-bottom:10px">
+          <span class="field-label" style="min-width:70px">外包金額</span>
+          <input class="fi fi-md" id="edit-outsource" type="number" min="0" value="${c.outsource||0}">
+          <span class="unit">元</span>
+        </div>`:`<input type="hidden" id="edit-outsource" value="${c.outsource||0}">`}
+        <div class="field-row" style="margin-bottom:14px">
+          <span class="field-label" style="min-width:70px">訂金收款</span>
+          <input class="fi fi-md" id="edit-deposit" type="number" min="0" value="${c.deposit||0}">
+          <span class="unit">元</span>
+        </div>
+        <div style="background:var(--s2);border-radius:7px;padding:8px 10px;font-size:11px;color:var(--t3);margin-bottom:14px">
+          案件：${c.caseType==='web'?`${c.plan||'未選方案'}${c.seoAdd?' +SEO':''}${c.customAdd?' +客製':''}`:
+          `平面${c.flatDesc?' · '+c.flatDesc:''}${c.customAdd?' +客製':''}`}
+          &nbsp;·&nbsp; 目前總額 <strong>${fmt(total)}</strong>
+        </div>
+        <div style="display:flex;gap:8px">
+          <button class="action-btn" style="flex:1;background:var(--s3);color:var(--t2)" onclick="closeModal()">取消</button>
+          <button class="action-btn btn-primary" style="flex:1" onclick="submitEditCase('${cid}')">✅ 確認修改</button>
+        </div>
+      </div>
+    </div>`;
+}
+function submitEditCase(cid){
+  const c=getCases().find(x=>x.id===cid);
+  if(!c)return;
+  const client=document.getElementById('edit-client')?.value?.trim();
+  if(!client){toast('客戶名稱不能為空','err');return;}
+  const quote=+document.getElementById('edit-quote')?.value||0;
+  const outsource=+document.getElementById('edit-outsource')?.value||0;
+  const deposit=+document.getElementById('edit-deposit')?.value||0;
+  c.client=client;
+  c.quote=quote;
+  c.outsource=outsource;
+  c.deposit=deposit;
+  saveDB();
+  closeModal();
+  toast(`${client} 案件資料已更新`,'ok');
+  renderCurrentTab();
+}
+function openChangeDesignerModal(cid){
+  const c=getCases().find(x=>x.id===cid);
   document.getElementById('modal-root').innerHTML=`
     <div class="modal-mask" onclick="if(event.target===this)closeModal()">
       <div class="modal-box">
