@@ -1769,6 +1769,20 @@ function renderDesignPane(){
     </div>`;
   }
 
+  // 停用（離職）人員名下的設計中案件：管理者／分派者可在此改派
+  if(adm||isPutting){
+    const orphan=getCases().filter(c=>c.status==='designing'&&c.designId&&(!MEMBERS[c.designId]||MEMBERS[c.designId].active===false));
+    if(orphan.length){
+      html+=`<div class="card">
+      <div class="card-hdr"><div class="card-title">⚠️ 停用人員的設計中案件（${orphan.length}）</div></div>
+      <div class="card-body">
+        <div class="notice">以下案件的主責設計師已停用（離職），請變更設計師後才會列入獎金計算</div>
+        ${orphan.map(c=>caseCard(c,`<button class="action-btn btn-primary" onclick="openChangeDesignerModal('${c.id}')">🔄 變更設計師（原：${MEMBERS[c.designId]?.name||c.designId}）</button>`)).join('')}
+      </div>
+    </div>`;
+    }
+  }
+
   // 協作設計師（動態）
   if(isCollab||adm){
     html+=`<div class="card">
@@ -1863,6 +1877,8 @@ function submitEditCase(cid){
 }
 function openChangeDesignerModal(cid){
   const c=getCases().find(x=>x.id===cid);
+  if(!c)return;
+  const execMembers=getDesignExec();
   document.getElementById('modal-root').innerHTML=`
     <div class="modal-mask" onclick="if(event.target===this)closeModal()">
       <div class="modal-box">
