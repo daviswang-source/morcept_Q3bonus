@@ -666,11 +666,11 @@ function pmConfirmDone(cid){
   toast(`${c.client} 已確認結案 🎉`,'ok');
   renderCurrentTab();
 }
-// 不經設計直接結案（管理者或該案 PM）：不指定設計師，故不計入設計部結案率與執案金額
+// 不經設計直接結案（管理者限定）：不指定設計師，故不計入設計部結案率與執案金額
 function pmDirectDone(cid){
   const c=getCases().find(x=>x.id===cid);
   if(!c)return;
-  if(!isAdmin(CUR_USER)&&c.pmId!==CUR_USER){toast('只有管理者或該案 PM 可以操作','err');return;}
+  if(!isAdmin(CUR_USER)){toast('只有管理者可以直接結案','err');return;}
   if(!confirm(`確定「${c.client}」不經設計，直接結案？\n此案將計入 PM 獎金，不計入設計部。`))return;
   c.status='done';c.designId=null;
   c.directDone=true;c.directDoneBy=CUR_USER;c.directDoneAt=Date.now();
@@ -705,7 +705,7 @@ function adminRevertDone(cid){
 // PM／維運案件卡共用：直接結案、撤回結案按鈕
 function directDoneActions(c,canAct,adm){
   const a=[];
-  if(['in_progress','pending_design'].includes(c.status)&&canAct)
+  if(['in_progress','pending_design'].includes(c.status)&&adm)
     a.push(`<button class="action-btn" style="background:var(--s3);color:var(--green)" onclick="pmDirectDone('${c.id}')">✅ 直接結案（不經設計）</button>`);
   if(c.status==='done'&&adm)
     a.push(`<button class="action-btn" style="background:var(--s3);color:var(--t2)" onclick="adminRevertDone('${c.id}')">↩️ 撤回結案</button>`);
@@ -753,6 +753,19 @@ function renderSalesPane(){
   let html='';
   html+=`<div class="notice">📅 ${seasonLabel()} · 業務填寫案件後，由 Murphy 指派 PM</div>`;
   targets.forEach(tid=>{html+=buildSalesBlock(tid,adm||who===tid);});
+  // 停用（離職）業務名下的案件：管理者可改派給其他業務（只影響業務累積金額）
+  if(adm){
+    const orphan=getCases().filter(c=>c.status!=='void'&&c.salesId&&(!MEMBERS[c.salesId]||MEMBERS[c.salesId].active===false));
+    if(orphan.length){
+      html+=`<div class="card">
+      <div class="card-hdr"><div class="card-title">⚠️ 停用業務的案件（${orphan.length}）</div></div>
+      <div class="card-body">
+        <div class="notice">以下案件的業務已停用（離職），變更業務後金額會計入新業務；PM、設計與案件狀態不受影響</div>
+        ${orphan.map(c=>caseCard(c,`<button class="action-btn btn-primary" onclick="openEditCaseModal('${c.id}')">🔄 變更業務（原：${MEMBERS[c.salesId]?.name||c.salesId}）</button>`)).join('')}
+      </div>
+    </div>`;
+    }
+  }
   if(MEMBERS[who]?.role==='assist'||adm){html+=buildElenaBlock(adm);}
   html+=buildTeamBonusBlock(adm);
   document.getElementById('sales-content').innerHTML=html;
@@ -1894,6 +1907,14 @@ function openEditCaseModal(cid){
           <input class="fi fi-md" id="edit-deposit" type="number" min="0" value="${c.deposit||0}">
           <span class="unit">元</span>
         </div>
+        ${isAdmin(CUR_USER)?`<div class="field-row" style="margin-bottom:6px">
+          <span class="field-label" style="min-width:70px">負責業務</span>
+          <select class="fi" id="edit-sales" style="flex:1">
+            ${(getSalesMain().some(m=>m.id===c.salesId)?[]:[{id:c.salesId,name:(MEMBERS[c.salesId]?.name||c.salesId||'未指定')+'（已停用）'}])
+              .concat(getSalesMain()).map(m=>`<option value="${m.id}" ${c.salesId===m.id?'selected':''}>${m.name}</option>`).join('')}
+          </select>
+        </div>
+        <div style="font-size:11px;color:var(--t3);margin-bottom:12px">變更業務只影響業務累積金額，不會改動 PM、設計與案件狀態</div>`:''}
         <div style="background:var(--s2);border-radius:7px;padding:8px 10px;font-size:11px;color:var(--t3);margin-bottom:14px">
           案件：${c.caseType==='web'?`${c.plan||'未選方案'}${c.seoAdd?' +SEO':''}${c.customAdd?' +客製':''}`:
           `平面${c.flatDesc?' · '+c.flatDesc:''}${c.customAdd?' +客製':''}`}
@@ -1918,9 +1939,15 @@ function submitEditCase(cid){
   c.quote=quote;
   c.outsource=outsource;
   c.deposit=deposit;
+  const newSales=document.getElementById('edit-sales')?.value;
+  let salesMsg='';
+  if(isAdmin(CUR_USER)&&newSales&&newSales!==c.salesId){
+    salesMsg=`，業務 ${MEMBERS[c.salesId]?.name||c.salesId||'未指定'} → ${MEMBERS[newSales]?.name||newSales}`;
+    c.salesId=newSales;
+  }
   saveDB();
   closeModal();
-  toast(`${client} 案件資料已更新`,'ok');
+  toast(`${client} 案件資料已更新${salesMsg}`,'ok');
   renderCurrentTab();
 }
 function openChangeDesignerModal(cid){
