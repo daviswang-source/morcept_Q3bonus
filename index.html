@@ -666,6 +666,51 @@ function pmConfirmDone(cid){
   toast(`${c.client} 已確認結案 🎉`,'ok');
   renderCurrentTab();
 }
+// 不經設計直接結案（管理者或該案 PM）：不指定設計師，故不計入設計部結案率與執案金額
+function pmDirectDone(cid){
+  const c=getCases().find(x=>x.id===cid);
+  if(!c)return;
+  if(!isAdmin(CUR_USER)&&c.pmId!==CUR_USER){toast('只有管理者或該案 PM 可以操作','err');return;}
+  if(!confirm(`確定「${c.client}」不經設計，直接結案？\n此案將計入 PM 獎金，不計入設計部。`))return;
+  c.status='done';c.designId=null;
+  c.directDone=true;c.directDoneBy=CUR_USER;c.directDoneAt=Date.now();
+  saveDB();
+  toast(`${c.client} 已直接結案（未經設計）`,'ok');
+  renderCurrentTab();
+}
+// 待設計分派 → 退回 PM（不需設計）
+function designReturnToPM(cid){
+  const c=getCases().find(x=>x.id===cid);
+  if(!c||c.status!=='pending_design')return;
+  if(!confirm(`確定將「${c.client}」退回 PM？（此案不需設計）`))return;
+  c.status='in_progress';c.designId=null;
+  saveDB();
+  toast(`${c.client} 已退回 PM`,'ok');
+  renderCurrentTab();
+}
+// 撤回結案（管理者限定）→ 回到執行中
+function adminRevertDone(cid){
+  const c=getCases().find(x=>x.id===cid);
+  if(!c||c.status!=='done')return;
+  if(!isAdmin(CUR_USER)){toast('只有管理者可以撤回結案','err');return;}
+  // 直接結案的回到執行中；經設計結案的回到設計中（保留原設計師）
+  const back=(!c.directDone&&c.designId)?'designing':'in_progress';
+  if(!confirm(`確定撤回「${c.client}」的結案？案件會回到「${CASE_STATUS[back]}」。`))return;
+  c.status=back;
+  delete c.directDone;delete c.directDoneBy;delete c.directDoneAt;
+  saveDB();
+  toast(`${c.client} 已撤回結案`,'ok');
+  renderCurrentTab();
+}
+// PM／維運案件卡共用：直接結案、撤回結案按鈕
+function directDoneActions(c,canAct,adm){
+  const a=[];
+  if(['in_progress','pending_design'].includes(c.status)&&canAct)
+    a.push(`<button class="action-btn" style="background:var(--s3);color:var(--green)" onclick="pmDirectDone('${c.id}')">✅ 直接結案（不經設計）</button>`);
+  if(c.status==='done'&&adm)
+    a.push(`<button class="action-btn" style="background:var(--s3);color:var(--t2)" onclick="adminRevertDone('${c.id}')">↩️ 撤回結案</button>`);
+  return a.join('');
+}
 function getCasesByDesignType(type){
   return getCases().filter(c=>c.caseType===type&&['pending_design','designing','done'].includes(c.status));
 }
@@ -688,6 +733,7 @@ function caseCard(c,actions=''){
           ${c.pmId?` &nbsp;·&nbsp; ${MEMBERS[c.pmId]?.dept==='maint'?'維運':'PM'}: ${MEMBERS[c.pmId]?.name}`:''}
           ${c.designId?` &nbsp;·&nbsp; 設計: ${MEMBERS[c.designId]?.name}`:''}
           ${c.status==='done'?` &nbsp;·&nbsp; <strong style="color:var(--green)">結案 ${fmt(total)}</strong>`:''}
+          ${c.directDone?` &nbsp;·&nbsp; <span style="color:var(--orange)">未經設計（${MEMBERS[c.directDoneBy]?.name||c.directDoneBy||''} 直接結案）</span>`:''}
         </div>
       </div>
       ${caseStatusPill(c.status)}
@@ -710,7 +756,6 @@ function renderSalesPane(){
   if(MEMBERS[who]?.role==='assist'||adm){html+=buildElenaBlock(adm);}
   html+=buildTeamBonusBlock(adm);
   document.getElementById('sales-content').innerHTML=html;
-  targets.forEach(tid=>updateSalesResult(tid));
   updateElenaResult();
   updateTeamResult();
 }
@@ -1305,6 +1350,7 @@ function renderPMCases(targets,adm,who){
           actions.push(`<button class="action-btn btn-orange" onclick="pmSendToDesign('${c.id}')">🎨 發送給設計</button>`);
         if(c.status==='designing'&&(adm||who===tid))
           actions.push(`<button class="action-btn btn-green" onclick="pmConfirmDone('${c.id}')">🏁 確認結案</button>`);
+        actions.push(directDoneActions(c,adm||who===tid,adm));
         return caseCard(c,actions.join(''));
       }).join('')}
     </div></div>`;
@@ -1401,6 +1447,7 @@ function renderMaintCases(who,adm){
             acts.push(`<button class="action-btn btn-orange" onclick="pmSendToDesign('${c.id}')">🎨 發送給設計</button>`);
           if(c.status==='designing'&&(adm||who===tid))
             acts.push(`<button class="action-btn btn-green" onclick="pmConfirmDone('${c.id}')">🏁 確認結案</button>`);
+          acts.push(directDoneActions(c,adm||who===tid,adm));
           return caseCard(c,acts.join(''));
         }).join('')}
       </div>
@@ -1713,6 +1760,7 @@ function renderDesignPane(){
               ${execMembers.map(m=>`<option value="${m.id}">${m.name}${m.id===who?' （自己）':''}</option>`).join('')}
             </select>
             <button class="action-btn btn-primary" onclick="puttingAssign('${c.id}')">✅ 確認分派</button>
+            <button class="action-btn" style="background:var(--s3);color:var(--t2)" onclick="designReturnToPM('${c.id}')">↩️ 退回 PM（不需設計）</button>
           </div>
         </div>`).join('')}
       </div>
