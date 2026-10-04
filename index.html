@@ -2420,5 +2420,94 @@ async function initApp(){
 }
 initApp();
 </script>
+
+<!-- ═══ AI 工具中心：Google 登入（限 @morcept.com）＋使用紀錄（morceptaioverview 的 usage_logs）═══
+     分頁一直開著也會記錄：打開時記一次，之後只要有操作（點擊、按鍵、切回這個分頁），每 20 分鐘再記一次。
+     安全機制：這個網址還沒加進 morceptaioverview 的「授權網域」時，不顯示登入門檻、工具照常使用（只是不記錄），
+     加好網域後自動生效。設定：TOOL_ID／TOOL_NAME。 -->
+<script>
+(function () {
+  var TOOL_ID = 'bonus-challenge', TOOL_NAME = '獎金挑戰賽';
+  var HUB = { apiKey: 'AIzaSyBjlXKMeerSnNO6ASadsH_8N2sMSmGokJQ', authDomain: 'morceptaioverview.firebaseapp.com', projectId: 'morceptaioverview', storageBucket: 'morceptaioverview.firebasestorage.app', messagingSenderId: '536899294593', appId: '1:536899294593:web:37623fd934b9814a33c480' };
+  var WINDOW_MS = 20 * 60 * 1000;
+
+  function load(src) { return new Promise(function (ok, fail) { var s = document.createElement('script'); s.src = src; s.onload = ok; s.onerror = fail; document.head.appendChild(s); }); }
+  // 沿用頁面已載入的 Firebase compat 版本；沒有就載入 10.13.2
+  function ensureSdk() {
+    var v = (window.firebase && firebase.SDK_VERSION) || '10.13.2', base = 'https://www.gstatic.com/firebasejs/' + v + '/';
+    var p = window.firebase && firebase.initializeApp ? Promise.resolve() : load(base + 'firebase-app-compat.js');
+    return p.then(function () { return firebase.auth ? null : load(base + 'firebase-auth-compat.js'); })
+            .then(function () { return firebase.firestore ? null : load(base + 'firebase-firestore-compat.js'); });
+  }
+  function domainAllowed() {
+    return fetch('https://www.googleapis.com/identitytoolkit/v3/relyingparty/getProjectConfig?key=' + HUB.apiKey)
+      .then(function (r) { return r.json(); })
+      .then(function (d) { return (d.authorizedDomains || []).indexOf(location.hostname) !== -1; })
+      .catch(function () { return false; });
+  }
+
+  // 登入門檻畫面
+  var gate = document.createElement('div');
+  gate.id = 'aithGate';
+  gate.setAttribute('style', 'position:fixed;inset:0;z-index:2147483000;background:rgba(20,21,29,.92);display:none;align-items:center;justify-content:center;font-family:-apple-system,"PingFang TC","Microsoft JhengHei",sans-serif;');
+  gate.innerHTML = '<div style="background:#1c1d29;border:1px solid #33344a;border-radius:14px;padding:32px 28px;max-width:340px;width:88%;text-align:center;box-shadow:0 20px 60px rgba(0,0,0,.4);">' +
+    '<div style="font-size:15px;font-weight:600;color:#e9e7f0;margin-bottom:6px;">請先登入</div>' +
+    '<div style="font-size:12.5px;color:#9a9bb5;margin-bottom:18px;line-height:1.6;">這是默聲創意內部工具，限 @morcept.com 帳號使用</div>' +
+    '<button id="aithSignInBtn" type="button" style="width:100%;padding:11px;border-radius:8px;border:none;background:#e8b64c;color:#14151d;font-weight:600;font-size:14px;cursor:pointer;">使用 Google 帳號登入</button>' +
+    '<div id="aithGateError" style="font-size:12px;color:#e0955a;margin-top:12px;min-height:16px;"></div></div>';
+
+  domainAllowed().then(function (ok) {
+    if (!ok) { console.info('[AI 工具中心] ' + location.hostname + ' 尚未加入授權網域，暫不啟用登入與使用紀錄'); return; }
+    return ensureSdk().then(start);
+  }).catch(function (e) { console.warn('[AI 工具中心] 使用紀錄初始化失敗', e); });
+
+  function start() {
+    var app; try { app = firebase.app('hub'); } catch (e) { app = firebase.initializeApp(HUB, 'hub'); }
+    var auth = app.auth(), db = app.firestore(), user = null, pending = false;
+    var provider = new firebase.auth.GoogleAuthProvider(); provider.setCustomParameters({ hd: 'morcept.com' });
+    document.body.appendChild(gate);
+    var errEl = gate.querySelector('#aithGateError');
+
+    function log(source) {
+      if (!user || pending) return;
+      var key = 'aith_last_use_' + TOOL_ID + '_' + user.email, last = 0;
+      try { last = parseInt(localStorage.getItem(key) || '0', 10); } catch (e) {}
+      if (Date.now() - last < WINDOW_MS) return;
+      pending = true;
+      db.collection('usage_logs').add({ tool_id: TOOL_ID, tool_name: TOOL_NAME, action: 'open', user: user.email, timestamp: firebase.firestore.FieldValue.serverTimestamp(), source: source })
+        .then(function () { try { localStorage.setItem(key, String(Date.now())); } catch (e) {} })
+        .catch(function (err) { console.warn('[AI 工具中心] usage_logs 寫入失敗', err.code || err); })
+        .then(function () { pending = false; });
+    }
+    auth.onAuthStateChanged(function (u) {
+      if (u && u.email && /@morcept\.com$/i.test(u.email)) {
+        user = u; gate.style.display = 'none'; log('direct_open');
+      } else if (u) {
+        errEl.textContent = '請用 @morcept.com 帳號登入'; auth.signOut();
+      } else { user = null; gate.style.display = 'flex'; }
+    });
+    // 分頁開著持續使用：點擊、按鍵、切回分頁都算（同一人 20 分鐘內只記一次）
+    document.addEventListener('click', function (e) { if (!gate.contains(e.target)) log('active_use'); }, true);
+    document.addEventListener('keydown', function () { log('active_use'); }, true);
+    document.addEventListener('visibilitychange', function () { if (document.visibilityState === 'visible') log('active_use'); });
+
+    gate.querySelector('#aithSignInBtn').addEventListener('click', function () {
+      errEl.textContent = '';
+      auth.signInWithPopup(provider).then(function (res) {
+        var tok = res.credential && res.credential.accessToken;
+        if (tok && typeof window.hubOnGoogleToken === 'function') window.hubOnGoogleToken(tok); // 工具自己也有 Google 登入時一起登入
+      }).catch(function (err) {
+        if (err.code === 'auth/popup-blocked' || err.code === 'auth/cancelled-popup-request') auth.signInWithRedirect(provider);
+        else if (err.code !== 'auth/popup-closed-by-user') errEl.textContent = '登入失敗：' + err.message;
+      });
+    });
+    // 工具自己的 Google 登入完成時呼叫，順便登入工具中心，不用再按一次
+    window.hubUsageLinkGoogle = function (accessToken) {
+      if (!accessToken || user) return;
+      auth.signInWithCredential(firebase.auth.GoogleAuthProvider.credential(null, accessToken)).catch(function (e) { console.warn('[AI 工具中心] 連結登入失敗', e.code || e); });
+    };
+  }
+})();
+</script>
 </body>
 </html>
